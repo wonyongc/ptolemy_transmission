@@ -683,7 +683,7 @@ Sub MakeTargetPermMagnetSingle()
 
 End Sub
 
-''''''' Cans / Electrodes
+''''''' Target / Cans
 
 Sub MakeTargetCans()
 
@@ -738,6 +738,9 @@ Sub MakeTargetCans()
 
 
 End Sub
+
+''''''' Arc
+
 Sub MakeParaDrainArcElectrodes()
 	With Polygon3D
 		.Reset
@@ -872,6 +875,9 @@ Sub MakeParaDrainArcElectrodes()
 		"paradrain_electrodes:pd_61_89_1", "11" _
 	)
 End Sub
+
+''''''' PCBs
+
 Sub MakePCBs()
 
 	'''' PCBs ''''
@@ -1019,6 +1025,9 @@ Sub MakePCBsFifthStage()
 	)
 
 End Sub
+
+''''''' Filter Electrodes
+
 Sub MakeFilterElectrodes()
 
 	pd_bounce = -200
@@ -2004,6 +2013,7 @@ Sub MakeFilterElectrodesFifthStage()
 
 End Sub
 
+''''''' Backplate, Catcher
 
 Sub MakeBackplate()
 	MakeBrick("backplate", "paradrain_electrodes", "PEC", -fe_x, fe_x, -fe_y, fe_y, _
