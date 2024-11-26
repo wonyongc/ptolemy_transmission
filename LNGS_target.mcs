@@ -1,0 +1,4022 @@
+Option Explicit
+
+Dim max_time_steps, traj_sampling, spatial_sampling _
+	As Integer
+Dim boundarytype, b_field_file, e_field_file _
+	As String
+Dim magnetrun, withcatchermesh, mirrorparticles, _
+	Eimport, Bimport, ComputeE, ComputeB, SaveTraj _
+	As Boolean
+Dim n_electrodes, _
+	n_first_stage, n_second_stage, n_third_stage, n_fourth_stage, n_fifth_stage, _
+	n_buffer_stage, _
+	n_accel, n_ramp, n_bounce, n_fstart, n_fonly, nf _
+	As Integer
+Dim background_space, zmin_background_space, zmax_background_space _
+	As Double
+Dim	eth, fe_width, fe_gap, fe_step, _
+	fe_x, fe_y, fe_y_2nd, fe_y_3rd, fe_y_4th, fe_y_5th, _
+	fe_z_end, b_z_end, _
+	fe_z_end_1st, b_z_end_1st, _
+	fe_z_end_2nd, b_z_end_2nd, _
+	fe_z_end_3rd, b_z_end_3rd, _
+	fe_z_end_4th, b_z_end_4th, _
+	fe_z_end_5th, b_z_end_5th, _
+	b_z_start_2nd, fe_z_start_2nd, _
+	b_z_start_3rd, fe_z_start_3rd, _
+	b_z_start_4th, fe_z_start_4th, _
+	b_z_start_5th, fe_z_start_5th, _
+	backplate_z _
+	As Double
+Dim pmx, pmy, pmz, pmT, mrot, Rcan, Hcan _
+	As Double
+Dim bn_filter(120), bn_accel(150), bn_adj(150), bn_bounce_adj(150) _
+	As Double
+Dim KE, pitch, _
+	particle_start_x, particle_start_y, particle_start_z _
+	As Double
+Dim mesh_step_x, mesh_step_y, mesh_step_z, _
+	fmesh_x, fmesh_y, fmesh_z_start, fmesh_z_end, _
+	tmesh_x, tmesh_xtop, tmesh_z_start _
+	As Double
+Dim lngsmat As String
+Dim Vinner, Vouter, Vcatcher As Double
+Dim i, j, k, z As Integer
+Dim x1, x2, z1, z2 As Double
+Dim pd_bounce, bv_top, bv_bot, _
+	pdv1, pdv2, pdv3, pdv4, pdv5, _
+	c1inj, c2inj, c3inj, c4inj, c5inj, _
+	c1, c2, c3, c4, c5, _
+	negy1t, negy2t, negy3t, negy4t, negy5t, _
+	vscale1, vscale2, vscale3, vscale4, vscale5, _
+	pd_z, pd_widthf, pd_widthb, _
+	pd_zstart, pd_zend_injection, zstart, _
+	accel_negy, accel_posy, scale_adj, offset, maxfrac As Double
+Dim Rtarget_inner, Rtarget_outer, Rtarget_lines, _
+	pring_theta, pring_phi, pring_anglespread As Double
+Dim crot, catchxgap, catchz, Rcatchshell, _
+	catchVbase, catchVinner, catchVouter, catchVcatcher, backplateV, _
+	catchVring1, catchVring2, catchVring3, backring1V, bring_cutout_y, _
+	bring_cutout_z, ringstartx, ringlen1, ringlen2, ringlen3, _
+	Rcatcher_catcher As Double
+
+
+Public Sub Main ()
+
+''''''''''''''''''''''''''''''''''''''''''' perm magnet, cans
+	'lngs_3perm
+	'-1.302, -0.253, 0.1017, -74.07
+	'-1.222, -0.203, 0.1633, -64.38
+	'-1.153, -0.152, 0.2513, -53.51
+
+	pmz = -1.302
+	pmx = -0.253
+	pmT = 15*0.1017
+	mrot = 74.07
+
+	Rcan = 0.01
+	Hcan = 0.005
+
+	Vinner = 18600
+	Vouter = 0
+	Vcatcher = 19000
+
+''''''''''''''''''''''''''''''''''''''''''' n_electrodes, fe, pd
+	eth = 0.001
+
+	n_first_stage  = 100
+	n_second_stage = 110
+	n_third_stage  = 120
+	n_fourth_stage = 130
+	n_fifth_stage  = 140
+
+	n_buffer_stage = 5
+	n_accel  = 146
+	n_bounce = n_accel
+
+	n_ramp   = 38
+	n_fstart = 50
+
+	pd_z 		= -1.521275
+	pd_widthf	= 0.10
+	pd_widthb	= 0.03
+	pd_zstart   = pd_z-pd_widthb
+	pd_zend_injection = pd_z+pd_widthf
+
+	fe_width 	= 0.016
+	fe_gap 		= 0.004
+	fe_step 	= fe_width +fe_gap
+
+	fe_x       	= 0.055
+	fe_y 		= 0.020
+	fe_y_2nd	= 0.030
+	fe_y_3rd	= 0.040
+	fe_y_4th	= 0.050
+	fe_y_5th	= 0.060
+
+''''''''''''''''''''''''''''''''''''''''''' catcher
+	Rcatchshell = 0.06
+	Rcatcher_catcher = fe_y_5th
+
+	crot = 0 '-15
+	catchz = 1.50
+
+	ringstartx = fe_x+eth
+	ringlen1  = 0.5*fe_x
+	ringlen2  = 0.25*fe_x
+	ringlen3  = 0.5*fe_x
+	catchxgap = 0.5*fe_x
+
+	' backplateV = -10
+
+	bring_cutout_y = Rcatchshell 'fe_y+2*eth
+	bring_cutout_z = catchz '+2*Rcan+0.5*(Rcatcher_catcher-2*Rcan)'fe_z_end
+
+	backring1V = 0
+
+	catchVring1 = 0
+	catchVring2 = 1250
+	catchVring3 = -1
+
+	catchVinner = 10
+	catchVcatcher = 0
+
+''''''''''''''''''''''''''''''''''''''''''' mesh 
+	mesh_step_x = eth
+	mesh_step_y = eth
+	mesh_step_z = eth
+
+	fmesh_x = fe_x+5*eth
+	fmesh_y = fe_y_5th+5*eth
+
+	fmesh_z_start = -1.2
+	fmesh_z_end = 1.5
+
+	tmesh_z_start = -1.6
+	tmesh_x = -0.36
+	tmesh_xtop = fmesh_x
+
+''''''''''''''''''''''''''''''''''''''''''' b/e field imports
+	' b_field_file = "/scratch/gpfs/wonyongc/lngs_target/lngs_3perm_asym.cst"
+	' b_field_file = "/scratch/gpfs/wonyongc/lngs_target/lngs_1perm_catchz1_2mm.cst"
+
+	' e_field_file = "C:\Users\wonyongc\work\LNGS_target\pd_drift\z-1.30_arc6-4-2-1_fd10-8-6-4-2_b-200_naccel30_nf116_symaccel_p15-35_corr28kbn_20m.cst"
+
+''''''''''''''''''''''''''''''''''''''''''' traj, background
+	max_time_steps = 100000000
+	traj_sampling = 100
+	spatial_sampling = 100 ' Min pushes per cell - 50
+
+	boundarytype = "open"
+	background_space = 0.1
+	zmin_background_space = 0.1
+	zmax_background_space = 0.1
+	
+''''''''''''''''''''''''''''''''''''''''''' toggles
+	mirrorparticles = False
+	If mirrorparticles = True Then
+		tmesh_xtop = -tmesh_x
+	End If
+	
+	magnetrun = False
+
+	If magnetrun = True Then
+		fmesh_y = Rcatchshell
+		max_time_steps = 100000
+		zmin_background_space = 0.4 ' from pd_zstart at -1.55
+		zmax_background_space = 1.0 ' from horn z at 0.65
+	End If
+
+	withcatchermesh = False
+
+	If withcatchermesh = True Then
+		n_accel  = 119 '124
+		n_bounce = 119 
+		fmesh_z_end = catchz+0.1
+		zmax_background_space = 0.1 ' from catchz+Rcatchshell at 1.06
+	End If
+
+	b_z_end_1st     = pd_zend_injection +n_first_stage*fe_step
+	b_z_end_2nd     = pd_zend_injection +n_second_stage*fe_step
+	b_z_end_3rd     = pd_zend_injection +n_third_stage*fe_step
+	b_z_end_4th     = pd_zend_injection +n_fourth_stage*fe_step
+	b_z_end_5th     = catchz 'pd_zend_injection +n_accel*fe_step
+	b_z_start_2nd   = b_z_end_1st
+	b_z_start_3rd   = b_z_end_2nd
+	b_z_start_4th   = b_z_end_3rd
+	b_z_start_5th   = b_z_end_4th
+
+	fe_z_end_1st    = pd_zend_injection +(n_first_stage+n_buffer_stage)*fe_step
+	fe_z_end_2nd    = pd_zend_injection +(n_second_stage+n_buffer_stage)*fe_step
+	fe_z_end_3rd    = pd_zend_injection +(n_third_stage+n_buffer_stage)*fe_step
+	fe_z_end_4th    = pd_zend_injection +(n_fourth_stage+n_buffer_stage)*fe_step
+	fe_z_end_5th    = catchz 'pd_zend_injection +n_accel*fe_step
+
+	fe_z_start_2nd  = pd_zend_injection +n_first_stage*fe_step
+	fe_z_start_3rd  = pd_zend_injection +n_second_stage*fe_step
+	fe_z_start_4th  = pd_zend_injection +n_third_stage*fe_step
+	fe_z_start_5th  = pd_zend_injection +n_fourth_stage*fe_step
+
+	backplate_z = fe_z_end_5th
+
+''''''''''''''''''''''''''''''''''''''''''' subroutines
+	DefineMaterials()
+	DefineComponents()
+	SetBn_accel()
+	SetBn_adj()
+	SetBn_bounce_adj()
+
+	lngsmat = "Iron-PEC"
+
+	MakeLNGSMagnet()
+	' MakeCatcherShell()
+	' MakeTargetPermMagnetSingle()
+
+	MakeTargetCans()
+	MakeParaDrainArcElectrodes()
+
+	MakePCBs()
+	MakeFilterElectrodes()
+
+	MakePCBsSecondStage()
+	MakePCBsThirdStage()
+	MakePCBsFourthStage()
+	MakePCBsFifthStage()
+	
+	MakeFilterElectrodesSecondStage()
+	MakeFilterElectrodesThirdStage()
+	MakeFilterElectrodesFourthStage()
+	MakeFilterElectrodesFifthStage()
+
+	' MakeBackplate()
+	' MakeBackring()
+	' MakeBackringBounce()
+	' MakeBackCylinderPCB()
+	' MakeCatcher()
+	' MakeCatcherRings()
+
+	MakeMesh()
+
+	' 10,200 particles
+	pring_theta = 20
+	' pring_phi = pringphiplaceholder
+	pring_phi = 0
+
+	pring_anglespread = 5
+
+	Rtarget_inner = 0.000001
+	Rtarget_outer = 0.001
+	Rtarget_lines = 50
+
+	MakeTestParticles()
+	' MakeParticleRing()
+
+	' BcomputeEnone()
+	BimportEcompute()
+	' BimportEimport()
+
+	SaveTraj = False
+	SetSolvers()
+	SetPTTracking()
+	SetPTMonitors()
+	' SetMStatic()
+
+	If magnetrun = False Then
+		Group.AddItem "solid$magnet:lngs_magnet", "Excluded from Simulation"
+		Group.AddItem "solid$magnet:lngs_magnet", "Excluded from Bounding Box"
+		Group.AddItem "coil$coil1", "Excluded from Simulation"
+		Group.AddItem "coil$coil1", "Excluded from Bounding Box"
+		Group.AddItem "coil$coil1_1", "Excluded from Simulation"
+		Group.AddItem "coil$coil1_1", "Excluded from Bounding Box"
+	End If
+
+End Sub
+
+
+'''''''''''''''''''''''''''''''''''''''''''
+''''''' Magnets
+
+Sub MakeTestMagnet()
+
+	Dim m_corner, _
+		m_outerwall_x, m_outerwall_y, _
+		m_innerwall_x, m_innerwall_y, _
+		m_pedestal_2x, m_pedestal_y, _
+		m_z1, m_z2, _
+		m_arm_z1, m_arm_z2 _
+		As Double
+
+	m_corner = 0.03
+
+	m_outerwall_x = 0.4
+	m_outerwall_y = 0.2
+
+	m_innerwall_x = 0.23
+	m_innerwall_y = 0.15
+
+	m_pedestal_2x = 0.17
+	m_pedestal_y = 0.05
+
+	m_z1 = 0
+	m_z2 = -0.4
+
+	m_arm_z1 = 0
+	m_arm_z2 = 0.32
+
+	MakeBrick("mfilter_outer", "magnet", "Iron-PEC", _
+		-m_outerwall_x, m_outerwall_x, _
+		-m_outerwall_y, m_outerwall_y, _
+		m_z1, m_z2 _
+	)
+
+	MakeBrick("mfilter_pedestal_top", "magnet", "Iron-PEC", _
+		m_innerwall_x-m_pedestal_2x, m_innerwall_x, _
+		-m_pedestal_y, m_pedestal_y, _
+		m_z1, m_z2 _
+	)
+
+	MakeBrick("mfilter_pedestal_bot", "magnet", "Iron-PEC", _
+		-(m_innerwall_x-m_pedestal_2x), -m_innerwall_x, _
+		-m_pedestal_y, m_pedestal_y, _
+		m_z1, m_z2 _
+	)
+
+	With Polygon3D
+		.Reset
+		.Name "mfilter_innerwall"
+		.Curve "magnet_curve"
+		.Point m_innerwall_x-m_corner, m_innerwall_y, 0
+		.Point m_innerwall_x, m_innerwall_y-m_corner, 0
+		.Point m_innerwall_x, -(m_innerwall_y-m_corner), 0
+		.Point m_innerwall_x-m_corner, -m_innerwall_y, 0
+		.Point -(m_innerwall_x-m_corner), -m_innerwall_y, 0
+		.Point -m_innerwall_x, -(m_innerwall_y-m_corner), 00
+		.Point -m_innerwall_x, m_innerwall_y-m_corner, 0
+		.Point -(m_innerwall_x-m_corner), m_innerwall_y, 0
+		.Point m_innerwall_x-m_corner, m_innerwall_y, 0
+		.Create
+	End With
+	With Polygon3D
+		.Reset
+		.Name "mfilter_zline"
+		.Curve "magnet_curve"
+		.Point 0, 0, m_z1
+		.Point 0, 0, m_z2
+		.Create
+	End With
+
+	MakeSweepCurve("mfilter_innerwall", "magnet", "Iron-PEC", _
+		"magnet_curve:mfilter_innerwall", "magnet_curve:mfilter_zline" _
+	)
+
+	MakeBrick("mfilter_arm_top", "magnet", "Iron-PEC", _
+		m_outerwall_x, m_innerwall_x, _
+		-m_pedestal_y, m_pedestal_y, _
+		m_arm_z1, m_arm_z2 _
+	)
+	MakeBrick("mfilter_arm_bot", "magnet", "Iron-PEC", _
+		-m_outerwall_x, -m_innerwall_x, _
+		-m_pedestal_y, m_pedestal_y, _
+		m_arm_z1, m_arm_z2 _
+	)
+
+
+	Solid.Subtract "magnet:mfilter_outer", "magnet:mfilter_innerwall"
+	Solid.Add "magnet:mfilter_outer", "magnet:mfilter_pedestal_top"
+	Solid.Add "magnet:mfilter_outer", "magnet:mfilter_pedestal_bot"
+	Solid.Add "magnet:mfilter_outer", "magnet:mfilter_arm_top"
+	Solid.Add "magnet:mfilter_outer", "magnet:mfilter_arm_bot"
+	Solid.Rename "magnet:mfilter_outer", "mfilter"
+
+
+	With Polygon3D 
+	  .Reset 
+	  .Version 10 
+	  .Name "cross_section" 
+	  .Curve "coil_curve" 
+	  .Point m_innerwall_x-m_pedestal_2x+0.08, "0", 0.02 
+	  .Point m_innerwall_x-m_pedestal_2x+0.12, "0", 0.02 
+	  .Point m_innerwall_x-m_pedestal_2x+0.12, "0", 0.02+0.00339
+	  .Point m_innerwall_x-m_pedestal_2x+0.08, "0", 0.02+0.00339
+	  .Point m_innerwall_x-m_pedestal_2x+0.08, "0", 0.02 
+	  .Create 
+	End With 
+	With Polygon3D 
+	  .Reset 
+	  .Version 10 
+	  .Name "path" 
+	  .Curve "coil_curve" 
+	  .Point m_innerwall_x-m_pedestal_2x+0.10, 0.07, 0.02 
+	  .Point m_innerwall_x-m_pedestal_2x+0.10, 0.07, -0.4-0.02 
+	  .Point m_innerwall_x-m_pedestal_2x+0.10, -0.07, -0.4-0.02 
+	  .Point m_innerwall_x-m_pedestal_2x+0.10, -0.07, 0.02 
+	  .Point m_innerwall_x-m_pedestal_2x+0.10, 0.07, 0.02 
+	  .Create 
+	End With
+	Pick.PickCurveEndpointFromId "coil_curve:path", "2"
+	Pick.PickCurveEndpointFromId "coil_curve:path", "1"
+	Pick.PickCurveEndpointFromId "coil_curve:path", "4"
+	Pick.PickCurveEndpointFromId "coil_curve:path", "3"
+	With BlendCurve 
+	.Reset 
+	.Name "blend1" 
+	.Radius "0.02" 
+	.UsePickedPoints 
+	.Create 
+	End With
+
+	With Coil
+	  .Reset
+	  .Name "coil1"
+	  .Type "Coil"
+	  .OperationMode "Current"
+	  .ConductorModel "Stranded"
+	  .ToolType "CurveCurve"
+	  .Value 200
+	  .Phase "0.0"
+	  .NTurns 250
+	  .Resistance "0.0"
+	  .NStrands "120"
+	  .StrandDiameter "0.05"
+	  .LengthExtension "1.2"
+	  .CurrentDirection "Inverted"
+	  .ProjectProfileToPathAdvanced "True"
+	  .ProfileName "coil_curve:cross_section"
+	  .PathName "coil_curve:path"
+	  .Create
+	End With
+
+	With Transform 
+	  .Reset 
+	  .Name "coil1" 
+	  .Origin "Free" 
+	  .Center "0", "0", "0" 
+	  .PlaneNormal "1", "0", "0" 
+	  .MultipleObjects "True" 
+	  .GroupObjects "False" 
+	  .Repetitions "1" 
+	  .MultipleSelection "False" 
+	  .Destination "" 
+	  .Material "" 
+	  .Transform "Coil", "Mirror" 
+	End With
+End Sub
+Sub MakeLNGSMagnet()
+
+	With Polygon3D
+		.Reset
+		.Name "lngs_cross_section"
+		.Curve "magnet_curve"
+		.Point 1.25, 0.3, 0 
+		.Point 1.25, -1.1, 0 
+		.Point 1.05, -1.3, 0 
+		.Point -1.05, -1.3, 0 
+		.Point -1.25, -1.1, 0 
+		.Point -1.25, 0.3, 0 
+		' .Point -0.125, 0.3, 0 
+		' .Point -0.075, 0.25, 0
+		.Point -0.075, 0.3, 0 
+		' .Point -0.075, -0.25, 0 
+		' .Point -0.125, -0.3, 0 
+		.Point -0.075, -0.3, 0 
+		.Point -0.65, -0.3, 0 
+		.Point -0.65, -0.5, 0 
+		.Point -0.45, -0.70, 0 
+		.Point 0.45, -0.70, 0 
+		.Point 0.65, -0.5, 0 
+		.Point 0.65, -0.3, 0 
+		' .Point 0.125, -0.3, 0 
+		' .Point 0.075, -0.25, 0 
+		.Point 0.075, -0.3, 0 
+		' .Point 0.075, 0.25, 0 
+		' .Point 0.125, 0.3, 0
+		.Point 0.075, 0.3, 0 
+		.Point 1.25, 0.3, 0 
+		.Create
+	End With
+	With Polygon3D
+		.Reset
+		.Name "lngs_profile"
+		.Curve "magnet_curve"
+		.Point 0, 0, 0
+		.Point 0, 0, -1
+		.Create
+	End With
+
+	With Polygon3D
+		.Reset
+		.Name "lngs_horn_cross_section"
+		.Curve "magnet_curve"
+		.Point 1.25, 0.3, 0
+		.Point 1.25, 0.3, 0.65
+		.Point 1, 0.3, 0.65
+		.Point 0.65, 0.3, 0
+		.Point 1.25, 0.3, 0
+		.Create
+	End With
+	With Polygon3D
+		.Reset
+		.Name "lngs_horn_profile"
+		.Curve "magnet_curve"
+		.Point 1.25, 0.3, 0
+		.Point 1.25, -0.3, 0
+		.Create
+	End With
+
+
+	MakeSweepCurve("lngs_magnet", "magnet", lngsmat, _
+		"magnet_curve:lngs_cross_section", "magnet_curve:lngs_profile" _
+	)
+
+	MakeSweepCurve("lngs_magnet_horn", "magnet", lngsmat, _
+		"magnet_curve:lngs_horn_cross_section", "magnet_curve:lngs_horn_profile" _
+	)
+
+	With Transform 
+		.Reset 
+		.Name "magnet:lngs_magnet_horn" 
+		.Origin "Free" 
+		.Center "0", "0", "0" 
+		.PlaneNormal "1", "0", "0" 
+		.MultipleObjects "True" 
+		.GroupObjects "False" 
+		.Repetitions "1" 
+		.MultipleSelection "False" 
+		.Destination "" 
+		.Material "" 
+		.AutoDestination "True" 
+		.Transform "Shape", "Mirror" 
+	End With
+
+	Solid.Add "magnet:lngs_magnet", "magnet:lngs_magnet_horn"
+	Solid.Add "magnet:lngs_magnet", "magnet:lngs_magnet_horn_1"
+
+	Pick.PickEdgeFromId "magnet:lngs_magnet", "30", "22"
+	Pick.PickEdgeFromId "magnet:lngs_magnet", "29", "18"
+	Pick.PickEdgeFromId "magnet:lngs_magnet", "26", "19"
+	Pick.PickEdgeFromId "magnet:lngs_magnet", "51", "36"
+	Pick.PickEdgeFromId "magnet:lngs_magnet", "53", "35"
+	Pick.PickEdgeFromId "magnet:lngs_magnet", "54", "38"
+
+	Solid.ChamferEdge "0.05", "45", "False", "23"
+
+
+	With Polygon3D 
+		.Reset 
+		.Name "coil_cross_section" 
+		.Curve "coil_curve" 
+		.Point "0.36", "0", "0.065" 
+		.Point "0.54", "0", "0.065" 
+		.Point "0.54", "0", "0.069" 
+		.Point "0.36", "0", "0.069" 
+		.Point "0.36", "0", "0.065" 
+		.Create 
+	End With 
+
+	With Polygon3D 
+		.Reset 
+		.Name "coil_path" 
+		.Curve "coil_curve" 
+		.Point "0.45", "0.452", "0.062" 
+		.Point "0.45", "0.452", "-1.062" 
+		.Point "0.45", "-0.452", "-1.062" 
+		.Point "0.45", "-0.452", "0.062" 
+		.Point "0.45", "0.452", "0.062" 
+		.Create 
+	End With
+
+	Pick.PickCurveEndpointFromId "coil_curve:coil_path", "2"
+	Pick.PickCurveEndpointFromId "coil_curve:coil_path", "1"
+	Pick.PickCurveEndpointFromId "coil_curve:coil_path", "4"
+	Pick.PickCurveEndpointFromId "coil_curve:coil_path", "3"
+
+	With BlendCurve 
+		.Reset 
+		.Name "blend1" 
+		.Radius "0.15" 
+		.UsePickedPoints 
+		.Create 
+	End With
+	With Coil
+	     .Reset
+	     .Name "coil1"
+	     .Type "Coil"
+	     .OperationMode "Current"
+	     .ConductorModel "Stranded"
+	     .ToolType "CurveCurve"
+	     .Value 72000
+	     .Phase "0.0"
+	     .NTurns "1"
+	     .Resistance "0.0"
+	     .NStrands "120"
+	     .StrandDiameter "0.05"
+	     .LengthExtension "1.2"
+	     .CurrentDirection "Inverted"
+	     .ProjectProfileToPathAdvanced "True"
+	     .ProfileName "coil_curve:coil_cross_section"
+	     .PathName "coil_curve:coil_path"
+	     .Create
+	End With
+
+	With Transform 
+	     .Reset 
+	     .Name "coil1" 
+	     .Origin "Free" 
+	     .Center "0", "0", "0" 
+	     .PlaneNormal "1", "0", "0" 
+	     .MultipleObjects "True" 
+	     .GroupObjects "False" 
+	     .Repetitions "1" 
+	     .MultipleSelection "False" 
+	     .Destination "" 
+	     .Material "" 
+	     .Transform "Coil", "Mirror" 
+	End With
+End Sub
+Sub MakeCatcherShell()
+	MakeCylinderX( "catcher_shell", "magnet", lngsmat, _
+		Rcatchshell-0.005, Rcatchshell, _
+		-(fe_x+eth), ( -(fe_x+eth+4*fe_x) ), _
+		0, _
+		catchz _
+	)
+	MirrorCopyX("magnet:catcher_shell")
+End Sub
+Sub MakeTargetPermMagnetSingle()
+
+	MakeCylinderX( "perm_magnet_shape", "target", "Vacuum", _
+		0.0, Rcan, _
+		pmx-eth, pmx+eth, _
+		0, _
+		pmz _
+	)
+
+	With Magnet
+		.Reset
+		.Name "perm_magnet"
+		.SetMagnetType "Constant"
+		.Remanence pmT
+		.MagDir "1", "0", "0"
+		.InverseDir "False"
+		.Face "target:perm_magnet_shape", "2"
+		.Transformable "True"
+		.Create
+	End With
+
+	With Transform 
+		.Reset 
+		.Name "target:perm_magnet_shape" 
+		.Origin "CommonCenter" 
+		.Center "0", "0", "0" 
+		.Angle "0", mrot, "0" 
+		.MultipleObjects "False" 
+		.GroupObjects "False" 
+		.Repetitions "1" 
+		.MultipleSelection "False" 
+		.AutoDestination "True" 
+		.Transform "Shape", "Rotate" 
+	End With
+
+	If mirrorparticles = True Then
+		MirrorCopyMagnetsX("target:perm_magnet_shape")
+	End If
+
+End Sub
+
+''''''' Cans / Electrodes
+
+Sub MakeTargetCans()
+
+	MakeCylinderX( "pm_base", "target", "PEC", _
+		0.0, Rcan, _
+		pmx-eth, pmx+eth, _
+		0, _
+		pmz _
+	)
+	MakeCylinderX( "pm_inner", "target", "PEC", _
+		Rcan, Rcan+eth, _
+		pmx-eth, pmx+Hcan, _
+		0, _
+		pmz _
+	)
+	MakeCylinderX( "pm_outer", "target", "PEC", _
+		Rcan+eth+2*eth, Rcan+eth+3*eth, _
+		pmx-eth, pmx+Hcan, _
+		0, _
+		pmz _
+	)
+	MakeCylinderX( "pm_catcher", "target", "PEC", _
+		Rcan+eth+5*eth, 3*Rcan, _
+		pmx-eth, pmx+eth, _
+		0, _
+		pmz _
+	)
+	MakeCylinderX( "pm_catcher_pcb", "target", "Epoxy resin", _
+		0, 3*Rcan+eth, _
+		pmx-2*eth, pmx+10*Hcan, _
+		0, _
+		pmz _
+	)
+	MakeCylinderX( "pm_catcher_pcb_cutout", "target", "Epoxy resin", _
+		0, 3*Rcan, _
+		pmx-eth, pmx+10*Hcan, _
+		0, _
+		pmz _
+	)
+	MakePotential( "pm_base_pot", Vinner,"target:pm_base", "2")
+	MakePotential( "pm_inner_pot", Vinner,"target:pm_inner", "2")
+	MakePotential( "pm_outer_pot", Vouter,"target:pm_outer", "2")
+	MakePotential( "pm_catcher_pot", Vcatcher,"target:pm_catcher", "2")
+
+	RotateCommonCenterY("target:pm_base", mrot)
+	RotateFreeCenterY("target:pm_inner", mrot, pmx, 0, pmz)
+	RotateFreeCenterY("target:pm_outer", mrot, pmx, 0, pmz)
+	RotateFreeCenterY("target:pm_catcher", mrot, pmx, 0, pmz)
+	RotateFreeCenterY("target:pm_catcher_pcb", mrot, pmx, 0, pmz)
+	RotateFreeCenterY("target:pm_catcher_pcb_cutout", mrot, pmx, 0, pmz)
+	Solid.Subtract "target:pm_catcher_pcb", "target:pm_catcher_pcb_cutout"
+
+
+End Sub
+Sub MakeParaDrainArcElectrodes()
+	With Polygon3D
+		.Reset
+		.Name "pd_16_29_outline"
+		.Curve "paradrain_curve"
+		.Point -0.198, fe_y, -1.302-0.057  
+		.Point -0.265, fe_y, -1.302-0.076  
+		.Point -0.238, fe_y, -1.302-0.132  
+		.Point -0.177, fe_y, -1.302-0.098  
+		.Point -0.198, fe_y, -1.302-0.057  
+		.Create
+	End With
+	With Polygon3D
+		.Reset
+		.Name "pd_16_29_profile"
+		.Curve "paradrain_curve"
+		.Point -0.198, fe_y, -1.302-0.057  
+		.Point -0.198, fe_y+eth, -1.302-0.057  
+		.Create
+	End With
+	MakeSweepCurve("pd_16_29", "paradrain_electrodes", "PEC", _
+		"paradrain_curve:pd_16_29_outline", "paradrain_curve:pd_16_29_profile" _
+	)
+	MirrorCopyY("paradrain_electrodes:pd_16_29")
+	MakeBrick("pd_cutout", "paradrain_electrodes", "Vacuum", -fe_x, fe_x, -(fe_y+eth), (fe_y+eth), -1.302-0.5, -1.302)
+	Solid.Subtract "paradrain_electrodes:pd_16_29", "paradrain_electrodes:pd_cutout"
+	MakeBrick("pd_cutout", "paradrain_electrodes", "Vacuum", -fe_x, fe_x, -(fe_y+eth), (fe_y+eth), -1.302-0.5, -1.302)
+	Solid.Subtract "paradrain_electrodes:pd_16_29_1", "paradrain_electrodes:pd_cutout"
+	MakePotential( "pd_16_29", 15000, _
+		"paradrain_electrodes:pd_16_29", "11" _
+	)
+	MakePotential( "pd_16_29_1", 15000, _
+		"paradrain_electrodes:pd_16_29_1", "11" _
+	)
+	With Polygon3D
+		.Reset
+		.Name "pd_31_44_outline"
+		.Curve "paradrain_curve"
+		.Point -0.173, fe_y, -1.302-0.104  
+		.Point -0.233, fe_y, -1.302-0.140  
+		.Point -0.191, fe_y, -1.302-0.185  
+		.Point -0.141, fe_y, -1.302-0.136  
+		.Point -0.173, fe_y, -1.302-0.104  
+		.Create
+	End With
+	With Polygon3D
+		.Reset
+		.Name "pd_31_44_profile"
+		.Curve "paradrain_curve"
+		.Point -0.173, fe_y, -1.302-0.104  
+		.Point -0.173, fe_y+eth, -1.302-0.104  
+		.Create
+	End With
+	MakeSweepCurve("pd_31_44", "paradrain_electrodes", "PEC", _
+		"paradrain_curve:pd_31_44_outline", "paradrain_curve:pd_31_44_profile" _
+	)
+	MirrorCopyY("paradrain_electrodes:pd_31_44")
+	MakeBrick("pd_cutout", "paradrain_electrodes", "Vacuum", -fe_x, fe_x, -(fe_y+eth), (fe_y+eth), -1.302-0.5, -1.302)
+	Solid.Subtract "paradrain_electrodes:pd_31_44", "paradrain_electrodes:pd_cutout"
+	MakeBrick("pd_cutout", "paradrain_electrodes", "Vacuum", -fe_x, fe_x, -(fe_y+eth), (fe_y+eth), -1.302-0.5, -1.302)
+	Solid.Subtract "paradrain_electrodes:pd_31_44_1", "paradrain_electrodes:pd_cutout"
+	MakePotential( "pd_31_44", 12000, _
+		"paradrain_electrodes:pd_31_44", "11" _
+	)
+	MakePotential( "pd_31_44_1", 12000, _
+		"paradrain_electrodes:pd_31_44_1", "11" _
+	)
+	With Polygon3D
+		.Reset
+		.Name "pd_46_59_outline"
+		.Curve "paradrain_curve"
+		.Point -0.136, fe_y, -1.302-0.140  
+		.Point -0.184, fe_y, -1.302-0.191  
+		.Point -0.134, fe_y, -1.302-0.223  
+		.Point -0.098, fe_y, -1.302-0.163  
+		.Point -0.136, fe_y, -1.302-0.140  
+		.Create
+	End With
+	With Polygon3D
+		.Reset
+		.Name "pd_46_59_profile"
+		.Curve "paradrain_curve"
+		.Point -0.136, fe_y, -1.302-0.140  
+		.Point -0.136, fe_y+eth, -1.302-0.140  
+		.Create
+	End With
+	MakeSweepCurve("pd_46_59", "paradrain_electrodes", "PEC", _
+		"paradrain_curve:pd_46_59_outline", "paradrain_curve:pd_46_59_profile" _
+	)
+	MirrorCopyY("paradrain_electrodes:pd_46_59")
+	MakeBrick("pd_cutout", "paradrain_electrodes", "Vacuum", -fe_x, fe_x, -(fe_y+eth), (fe_y+eth), -1.302-0.5, -1.302)
+	Solid.Subtract "paradrain_electrodes:pd_46_59", "paradrain_electrodes:pd_cutout"
+	MakeBrick("pd_cutout", "paradrain_electrodes", "Vacuum", -fe_x, fe_x, -(fe_y+eth), (fe_y+eth), -1.302-0.5, -1.302)
+	Solid.Subtract "paradrain_electrodes:pd_46_59_1", "paradrain_electrodes:pd_cutout"
+	MakePotential( "pd_46_59", 8000, _
+		"paradrain_electrodes:pd_46_59", "11" _
+	)
+	MakePotential( "pd_46_59_1", 8000, _
+		"paradrain_electrodes:pd_46_59_1", "11" _
+	)
+	With Polygon3D
+		.Reset
+		.Name "pd_61_89_outline"
+		.Curve "paradrain_curve"
+		.Point -0.092, fe_y, -1.302-0.166  
+		.Point -0.126, fe_y, -1.302-0.227  
+		.Point -0.004, fe_y, -1.302-0.255  
+		.Point -0.003, fe_y, -1.302-0.185  
+		.Point -0.092, fe_y, -1.302-0.166  
+		.Create
+	End With
+	With Polygon3D
+		.Reset
+		.Name "pd_61_89_profile"
+		.Curve "paradrain_curve"
+		.Point -0.092, fe_y, -1.302-0.166  
+		.Point -0.092, fe_y+eth, -1.302-0.166  
+		.Create
+	End With
+	MakeSweepCurve("pd_61_89", "paradrain_electrodes", "PEC", _
+		"paradrain_curve:pd_61_89_outline", "paradrain_curve:pd_61_89_profile" _
+	)
+	MirrorCopyY("paradrain_electrodes:pd_61_89")
+	MakeBrick("pd_cutout", "paradrain_electrodes", "Vacuum", -fe_x, fe_x, -(fe_y+eth), (fe_y+eth), -1.302-0.5, -1.302)
+	Solid.Subtract "paradrain_electrodes:pd_61_89", "paradrain_electrodes:pd_cutout"
+	MakeBrick("pd_cutout", "paradrain_electrodes", "Vacuum", -fe_x, fe_x, -(fe_y+eth), (fe_y+eth), -1.302-0.5, -1.302)
+	Solid.Subtract "paradrain_electrodes:pd_61_89_1", "paradrain_electrodes:pd_cutout"
+	MakePotential( "pd_61_89", 5000, _
+		"paradrain_electrodes:pd_61_89", "11" _
+	)
+	MakePotential( "pd_61_89_1", 5000, _
+		"paradrain_electrodes:pd_61_89_1", "11" _
+	)
+End Sub
+Sub MakePCBs()
+
+	'''' PCBs ''''
+
+	MakeBrick("b_top_pcb", "bounce_electrodes", "Epoxy resin", _
+		(fe_x-eth), fe_x, _
+		-fe_y, fe_y, _
+		pd_zstart, b_z_end_1st _
+	)
+
+	MakeBrick("b_bot_pcb", "bounce_electrodes", "Epoxy resin", _
+		-(fe_x-eth), -fe_x, _
+		-fe_y, fe_y, _
+		pd_zstart+0.06, b_z_end_1st _
+	)
+
+	MakeBrick("fe_negy_pcb", "filter_electrodes", "Epoxy resin", _
+		-(fe_x-eth), (fe_x-eth), _
+		-(fe_y+eth), -fe_y, _
+		pd_zstart, fe_z_end_1st _
+	)
+
+	MakeBrick("fe_posy_pcb", "filter_electrodes", "Epoxy resin", _
+		-(fe_x-eth), (fe_x-eth), _
+		(fe_y+eth), fe_y, _
+		pd_zstart, fe_z_end_1st _
+	)
+
+	' MakeBrick("injectback_pcb", "paradrain_electrodes", "Epoxy resin", _
+	' 	fe_x, -fe_x, _
+	' 	-fe_y, fe_y, _
+	' 	pd_zstart, pd_zstart-eth _
+	' )
+
+End Sub
+Sub MakePCBsSecondStage()
+
+	'''' PCBs ''''
+	MakeBrick("b_top_pcb_2nd", "bounce_electrodes_2nd", "Epoxy resin", _
+		(fe_x-eth), fe_x, _
+		-fe_y_2nd, fe_y_2nd, _
+		b_z_start_2nd, b_z_end_2nd _
+	)
+
+	MakeBrick("b_bot_pcb_2nd", "bounce_electrodes_2nd", "Epoxy resin", _
+		-(fe_x-eth), -fe_x, _
+		-fe_y_2nd, fe_y_2nd, _
+		b_z_start_2nd, b_z_end_2nd _
+	)
+
+	MakeBrick("fe_negy_pcb_2nd", "filter_electrodes_2nd", "Epoxy resin", _
+		-(fe_x-eth), (fe_x-eth), _
+		-(fe_y_2nd+eth), -fe_y_2nd, _
+		fe_z_start_2nd, fe_z_end_2nd _
+	)
+
+	MakeBrick("fe_posy_pcb_2nd", "filter_electrodes_2nd", "Epoxy resin", _
+		-(fe_x-eth), (fe_x-eth), _
+		(fe_y_2nd+eth), fe_y_2nd, _
+		fe_z_start_2nd, fe_z_end_2nd _
+	)
+
+End Sub
+Sub MakePCBsThirdStage()
+
+	'''' PCBs ''''
+	MakeBrick("b_top_pcb_3rd", "bounce_electrodes_3rd", "Epoxy resin", _
+		(fe_x-eth), fe_x, _
+		-fe_y_3rd, fe_y_3rd, _
+		b_z_start_3rd, b_z_end_3rd _
+	)
+
+	MakeBrick("b_bot_pcb_3rd", "bounce_electrodes_3rd", "Epoxy resin", _
+		-(fe_x-eth), -fe_x, _
+		-fe_y_3rd, fe_y_3rd, _
+		b_z_start_3rd, b_z_end_3rd _
+	)
+
+	MakeBrick("fe_negy_pcb_3rd", "filter_electrodes_3rd", "Epoxy resin", _
+		-(fe_x-eth), (fe_x-eth), _
+		-(fe_y_3rd+eth), -fe_y_3rd, _
+		fe_z_start_3rd, fe_z_end_3rd _
+	)
+
+	MakeBrick("fe_posy_pcb_3rd", "filter_electrodes_3rd", "Epoxy resin", _
+		-(fe_x-eth), (fe_x-eth), _
+		(fe_y_3rd+eth), fe_y_3rd, _
+		fe_z_start_3rd, fe_z_end_3rd _
+	)
+
+End Sub
+Sub MakePCBsFourthStage()
+
+	'''' PCBs ''''
+	MakeBrick("b_top_pcb_4th", "bounce_electrodes_4th", "Epoxy resin", _
+		(fe_x-eth), fe_x, _
+		-fe_y_4th, fe_y_4th, _
+		b_z_start_4th, b_z_end_4th _
+	)
+
+	MakeBrick("b_bot_pcb_4th", "bounce_electrodes_4th", "Epoxy resin", _
+		-(fe_x-eth), -fe_x, _
+		-fe_y_4th, fe_y_4th, _
+		b_z_start_4th, b_z_end_4th _
+	)
+
+	MakeBrick("fe_negy_pcb_4th", "filter_electrodes_4th", "Epoxy resin", _
+		-(fe_x-eth), (fe_x-eth), _
+		-(fe_y_4th+eth), -fe_y_4th, _
+		fe_z_start_4th, fe_z_end_4th _
+	)
+
+	MakeBrick("fe_posy_pcb_4th", "filter_electrodes_4th", "Epoxy resin", _
+		-(fe_x-eth), (fe_x-eth), _
+		(fe_y_4th+eth), fe_y_4th, _
+		fe_z_start_4th, fe_z_end_4th _
+	)
+
+End Sub
+Sub MakePCBsFifthStage()
+
+	'''' PCBs ''''
+	MakeBrick("b_top_pcb_5th", "bounce_electrodes_5th", "Epoxy resin", _
+		(fe_x-eth), fe_x, _
+		-fe_y_5th, fe_y_5th, _
+		b_z_start_5th, b_z_end_5th _
+	)
+
+	MakeBrick("b_bot_pcb_5th", "bounce_electrodes_5th", "Epoxy resin", _
+		-(fe_x-eth), -fe_x, _
+		-fe_y_5th, fe_y_5th, _
+		b_z_start_5th, b_z_end_5th _
+	)
+
+	MakeBrick("fe_negy_pcb_5th", "filter_electrodes_5th", "Epoxy resin", _
+		-(fe_x-eth), (fe_x-eth), _
+		-(fe_y_5th+eth), -fe_y_5th, _
+		fe_z_start_5th, fe_z_end_5th _
+	)
+
+	MakeBrick("fe_posy_pcb_5th", "filter_electrodes_5th", "Epoxy resin", _
+		-(fe_x-eth), (fe_x-eth), _
+		(fe_y_5th+eth), fe_y_5th, _
+		fe_z_start_5th, fe_z_end_5th _
+	)
+
+End Sub
+Sub MakeFilterElectrodes()
+
+	pd_bounce = -200
+	bv_top  = -200
+	bv_bot  = -200
+
+	pdv5 = 0
+	pdv4 = 100
+	pdv3 = 200
+	pdv2 = 800
+	pdv1 = 1500
+
+	c5inj = 2500
+	c4inj = 2500
+	c3inj = 2500
+	c2inj = 2500
+	c1inj = 2500
+
+	c5 = 2500
+	c4 = 2500
+	c3 = 2500
+	c2 = 2500
+	c1 = 2500
+
+	negy5t = 0
+	negy4t = 0
+	negy3t = 0
+	negy2t = 0
+	negy1t = 0
+
+	vscale5   = (pdv5+c5)/bn_accel(0)
+	vscale4   = (pdv4+c4)/bn_accel(0)
+	vscale3   = (pdv3+c3)/bn_accel(0)
+	vscale2   = (pdv2+c2)/bn_accel(0)
+	vscale1   = (pdv1+c1)/bn_accel(0)
+
+	offset = 0.10
+	maxfrac = 0.40
+
+	n_fonly = n_fstart-n_ramp
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''injection bounce
+
+	MakeBrick("pd_top", "paradrain_electrodes", "PEC", (fe_x-eth), (fe_x-eth), -(fe_y-eth), (fe_y-eth), _
+		pd_zstart, pd_zend_injection)
+	MakePotential( "pd_bounce_top", -200, "paradrain_electrodes:pd_top", "4")
+
+	MakeBrick("pd_bot", "paradrain_electrodes", "PEC", -(fe_x-eth), -(fe_x-eth), -(fe_y-eth), (fe_y-eth), _
+		pd_zstart+0.06, pd_zend_injection)
+	MakePotential( "pd_bounce_bot", -200, "paradrain_electrodes:pd_bot", "4")
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''bounce
+
+	For z = 0 To n_first_stage-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		MakeBrick("b_top_"&z, "bounce_electrodes", "PEC", (fe_x-eth), (fe_x-eth), -(fe_y-eth), (fe_y-eth), _
+			zstart, zstart+fe_width)
+		MakeBrick("b_bot_"&z, "bounce_electrodes", "PEC", -(fe_x-eth), -(fe_x-eth), -(fe_y-eth), (fe_y-eth), _
+			zstart, zstart+fe_width)
+
+		If z<n_ramp Then ' 38
+			bv_top = -200
+			bv_bot = -200
+		Else
+			bv_top = -200*Sqr(bn_accel(z))
+			bv_bot = -200*Sqr(bn_accel(z))
+		End If
+
+		MakePotential( "b_top_"&z, bv_top, "bounce_electrodes:b_top_"&z, "4")
+		MakePotential( "b_bot_"&z, bv_bot, "bounce_electrodes:b_bot_"&z, "4")
+	Next
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''5
+	x1 = -(fe_x-2*eth)+4*((2*fe_x-4*eth)/5)+eth
+	x2 = -(fe_x-2*eth)+5*((2*fe_x-4*eth)/5)-eth
+
+	MakeBrick("pd_drift5", "paradrain_electrodes", "PEC", x1, x2, (fe_y+eth), (fe_y+eth), pd_zstart, pd_zend_injection)
+	MirrorCopyY("paradrain_electrodes:pd_drift5")
+
+	MakePotential( "pd_drift5_1", pdv5-c5inj, "paradrain_electrodes:pd_drift5_1", "3")
+	MakePotential( "pd_drift5", pdv5+c5inj, "paradrain_electrodes:pd_drift5", "3")
+
+	For z = 0 To (n_first_stage+n_buffer_stage)-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		If z<n_ramp Then ' 38
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = (pdv5-c5)+ ( (negy5t-offset*vscale5*bn_accel(z))-(pdv5-c5) )*(z/n_ramp)
+		ElseIf z>=n_ramp And z<n_fstart Then
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = negy5t -offset*vscale5*bn_accel(z)
+		Else
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = negy5t -offset*vscale5*bn_adj(z)
+		End If
+
+		MakeBrick("fe_ch5_"&z, "filter_electrodes", "PEC", x1, x2, (fe_y+eth), (fe_y+eth), zstart, zstart+fe_width)
+		MirrorCopyY("filter_electrodes:fe_ch5_"&z)
+		MakePotential( "fe_ch5_"&CStr(z)&"_1", accel_negy, "filter_electrodes:fe_ch5_"&CStr(z)&"_1", "3")
+		MakePotential( "fe_ch5_"&z, accel_posy, "filter_electrodes:fe_ch5_"&z, "3")
+	Next
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''4
+	x1 = -(fe_x-2*eth)+3*((2*fe_x-4*eth)/5)+eth
+	x2 = -(fe_x-2*eth)+4*((2*fe_x-4*eth)/5)-eth
+
+	MakeBrick("pd_drift4", "paradrain_electrodes", "PEC", x1, x2, (fe_y+eth), (fe_y+eth), pd_zstart, pd_zend_injection)
+	MirrorCopyY("paradrain_electrodes:pd_drift4")
+
+	MakePotential( "pd_drift4_1", pdv4-c4inj, "paradrain_electrodes:pd_drift4_1", "3")
+	MakePotential( "pd_drift4", pdv4+c4inj, "paradrain_electrodes:pd_drift4", "3")
+
+	For z = 0 To (n_first_stage+n_buffer_stage)-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		If z<n_ramp Then ' 38
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = (pdv4-c4)+ ( (negy4t-offset*vscale4*bn_accel(z))-(pdv4-c4) )*(z/n_ramp)
+		ElseIf z>=n_ramp And z<n_fstart Then
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = negy4t -offset*vscale4*bn_accel(z)
+		Else
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = negy4t -offset*vscale4*bn_adj(z)
+		End If
+
+		MakeBrick("fe_ch4_"&z, "filter_electrodes", "PEC", x1, x2, (fe_y+eth), (fe_y+eth), zstart, zstart+fe_width)
+		MirrorCopyY("filter_electrodes:fe_ch4_"&z)
+		MakePotential( "fe_ch4_"&CStr(z)&"_1", accel_negy, "filter_electrodes:fe_ch4_"&CStr(z)&"_1", "3")
+		MakePotential( "fe_ch4_"&z, accel_posy, "filter_electrodes:fe_ch4_"&z, "3")
+	Next
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''3
+	x1 = -(fe_x-2*eth)+2*((2*fe_x-4*eth)/5)+eth
+	x2 = -(fe_x-2*eth)+3*((2*fe_x-4*eth)/5)-eth
+
+	MakeBrick("pd_drift3", "paradrain_electrodes", "PEC", x1, x2, (fe_y+eth), (fe_y+eth), pd_zstart, pd_zend_injection)
+	MirrorCopyY("paradrain_electrodes:pd_drift3")
+
+	MakePotential( "pd_drift3_1", pdv3-c3inj, "paradrain_electrodes:pd_drift3_1", "3")
+	MakePotential( "pd_drift3", pdv3+c3inj, "paradrain_electrodes:pd_drift3", "3")
+
+	For z = 0 To (n_first_stage+n_buffer_stage)-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		If z<n_ramp Then ' 38
+			accel_posy = vscale3*bn_adj(z)
+			accel_negy = (pdv3-c3)+ ( (negy3t-offset*vscale3*bn_accel(z))-(pdv3-c3) )*(z/n_ramp)
+		ElseIf z>=n_ramp And z<n_fstart Then
+			accel_posy = vscale3*bn_adj(z)
+			accel_negy = negy3t -offset*vscale3*bn_accel(z)
+		Else
+			accel_posy = vscale3*bn_adj(z)
+			accel_negy = negy3t -offset*vscale3*bn_adj(z)
+		End If
+
+		MakeBrick("fe_ch3_"&z, "filter_electrodes", "PEC", x1, x2, (fe_y+eth), (fe_y+eth), zstart, zstart+fe_width)
+		MirrorCopyY("filter_electrodes:fe_ch3_"&z)
+		MakePotential( "fe_ch3_"&CStr(z)&"_1", accel_negy,	"filter_electrodes:fe_ch3_"&CStr(z)&"_1", "3")
+		MakePotential( "fe_ch3_"&z, accel_posy, "filter_electrodes:fe_ch3_"&z, "3")
+	Next
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''2
+	x1 = -(fe_x-2*eth)+1*((2*fe_x-4*eth)/5)+eth
+	x2 = -(fe_x-2*eth)+2*((2*fe_x-4*eth)/5)-eth
+
+	MakeBrick("pd_drift2", "paradrain_electrodes", "PEC", x1, x2, (fe_y+eth), (fe_y+eth), pd_zstart, pd_zend_injection)
+	MirrorCopyY("paradrain_electrodes:pd_drift2")
+
+	MakePotential( "pd_drift2_1", pdv2-c2inj, "paradrain_electrodes:pd_drift2_1", "3")
+	MakePotential( "pd_drift2", pdv2+c2inj, "paradrain_electrodes:pd_drift2", "3")
+
+	For z = 0 To (n_first_stage+n_buffer_stage)-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		If z<n_ramp Then ' 38
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = (pdv4-c4)+ ( (negy4t-offset*vscale4*bn_accel(z))-(pdv4-c4) )*(z/n_ramp)
+		ElseIf z>=n_ramp And z<n_fstart Then
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = negy4t -offset*vscale4*bn_accel(z)
+		Else
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = negy4t -offset*vscale4*bn_adj(z)
+		End If
+
+		MakeBrick("fe_ch2_"&z, "filter_electrodes", "PEC", x1, x2, (fe_y+eth), (fe_y+eth), zstart, zstart+fe_width)
+		MirrorCopyY("filter_electrodes:fe_ch2_"&z)
+		MakePotential( "fe_ch2_"&CStr(z)&"_1", accel_negy, "filter_electrodes:fe_ch2_"&CStr(z)&"_1", "3")
+		MakePotential( "fe_ch2_"&z, accel_posy, "filter_electrodes:fe_ch2_"&z, "3")
+	Next
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''1
+	x1 = -(fe_x-2*eth)+0*((2*fe_x-4*eth)/5)+eth
+	x2 = -(fe_x-2*eth)+1*((2*fe_x-4*eth)/5)-eth
+
+	MakeBrick("pd_drift1", "paradrain_electrodes", "PEC", x1, x2, (fe_y+eth), (fe_y+eth), pd_zstart, pd_zend_injection)
+	MirrorCopyY("paradrain_electrodes:pd_drift1")
+
+	MakePotential( "pd_drift1_1", pdv1-c1inj, "paradrain_electrodes:pd_drift1_1", "3")
+	MakePotential( "pd_drift1", pdv1+c1inj, "paradrain_electrodes:pd_drift1", "3")
+
+	For z = 0 To (n_first_stage+n_buffer_stage)-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		If z<n_ramp Then ' 38
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = (pdv5-c5)+ ( (negy5t-offset*vscale5*bn_accel(z))-(pdv5-c5) )*(z/n_ramp)
+		ElseIf z>=n_ramp And z<n_fstart Then
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = negy5t -offset*vscale5*bn_accel(z)
+		Else
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = negy5t -offset*vscale5*bn_adj(z)
+		End If
+
+		MakeBrick("fe_ch1_"&z, "filter_electrodes", "PEC", x1, x2, (fe_y+eth), (fe_y+eth), zstart, zstart+fe_width)
+		MirrorCopyY("filter_electrodes:fe_ch1_"&z)
+		MakePotential( "fe_ch1_"&CStr(z)&"_1", accel_negy, "filter_electrodes:fe_ch1_"&CStr(z)&"_1", "3")
+		MakePotential( "fe_ch1_"&z, accel_posy, "filter_electrodes:fe_ch1_"&z, "3")
+	Next
+
+
+End Sub
+Sub MakeFilterElectrodesSecondStage()
+
+	pd_bounce = -200
+	bv_top  = -200
+	bv_bot  = -200
+
+	pdv5 = 0
+	pdv4 = 100
+	pdv3 = 200
+	pdv2 = 800
+	pdv1 = 1500
+
+	c5inj = 2500
+	c4inj = 2500
+	c3inj = 2500
+	c2inj = 2500
+	c1inj = 2500
+
+	c5 = 2500
+	c4 = 2500
+	c3 = 2500
+	c2 = 2500
+	c1 = 2500
+
+	negy5t = 0
+	negy4t = 0
+	negy3t = 0
+	negy2t = 0
+	negy1t = 0
+
+	vscale5   = (pdv5+c5)/bn_accel(0)
+	vscale4   = (pdv4+c4)/bn_accel(0)
+	vscale3   = (pdv3+c3)/bn_accel(0)
+	vscale2   = (pdv2+c2)/bn_accel(0)
+	vscale1   = (pdv1+c1)/bn_accel(0)
+
+	offset = 0.10
+	maxfrac = 0.40
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''bounce
+
+	For z = n_first_stage To n_second_stage-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		MakeBrick("b_top_2nd_"&z, "bounce_electrodes_2nd", "PEC", (fe_x-eth), (fe_x-eth), -(fe_y_2nd-eth), (fe_y_2nd-eth), _
+			zstart, zstart+fe_width)
+		MakeBrick("b_bot_2nd_"&z, "bounce_electrodes_2nd", "PEC", -(fe_x-eth), -(fe_x-eth), -(fe_y_2nd-eth), (fe_y_2nd-eth), _
+			zstart, zstart+fe_width)
+
+		If z<n_ramp Then ' 38
+			bv_top = -200
+			bv_bot = -200
+		Else
+			bv_top = -200*Sqr(bn_accel(z))
+			bv_bot = -200*Sqr(bn_accel(z))
+		End If
+
+		MakePotential( "b_top_2nd_"&z, bv_top, "bounce_electrodes_2nd:b_top_2nd_"&z, "4")
+		MakePotential( "b_bot_2nd_"&z, bv_bot, "bounce_electrodes_2nd:b_bot_2nd_"&z, "4")
+	Next
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''5
+	x1 = -(fe_x-2*eth)+4*((2*fe_x-4*eth)/5)+eth
+	x2 = -(fe_x-2*eth)+5*((2*fe_x-4*eth)/5)-eth
+
+	For z = n_first_stage To (n_second_stage+n_buffer_stage)-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		If z<n_ramp Then ' 38
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = (pdv5-c5)+ ( (negy5t-offset*vscale5*bn_accel(z))-(pdv5-c5) )*(z/n_ramp)
+		ElseIf z>=n_ramp And z<n_fstart Then
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = negy5t -offset*vscale5*bn_accel(z)
+		Else
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = negy5t -offset*vscale5*bn_adj(z)
+		End If
+
+		MakeBrick("fe_ch5_2nd_"&z, "filter_electrodes_2nd", "PEC", x1, x2, (fe_y_2nd+eth), (fe_y_2nd+eth), zstart, zstart+fe_width)
+		MirrorCopyY("filter_electrodes_2nd:fe_ch5_2nd_"&z)
+		MakePotential( "fe_ch5_2nd_"&CStr(z)&"_1", accel_negy, "filter_electrodes_2nd:fe_ch5_2nd_"&CStr(z)&"_1", "3")
+		MakePotential( "fe_ch5_2nd_"&z, accel_posy, "filter_electrodes_2nd:fe_ch5_2nd_"&z, "3")
+	Next
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''4
+	x1 = -(fe_x-2*eth)+3*((2*fe_x-4*eth)/5)+eth
+	x2 = -(fe_x-2*eth)+4*((2*fe_x-4*eth)/5)-eth
+
+	For z = n_first_stage To (n_second_stage+n_buffer_stage)-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		If z<n_ramp Then ' 38
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = (pdv4-c4)+ ( (negy4t-offset*vscale4*bn_accel(z))-(pdv4-c4) )*(z/n_ramp)
+		ElseIf z>=n_ramp And z<n_fstart Then
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = negy4t -offset*vscale4*bn_accel(z)
+		Else
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = negy4t -offset*vscale4*bn_adj(z)
+		End If
+
+		MakeBrick("fe_ch4_2nd_"&z, "filter_electrodes_2nd", "PEC", x1, x2, (fe_y_2nd+eth), (fe_y_2nd+eth), zstart, zstart+fe_width)
+		MirrorCopyY("filter_electrodes_2nd:fe_ch4_2nd_"&z)
+		MakePotential( "fe_ch4_2nd_"&CStr(z)&"_1", accel_negy, "filter_electrodes_2nd:fe_ch4_2nd_"&CStr(z)&"_1", "3")
+		MakePotential( "fe_ch4_2nd_"&z, accel_posy, "filter_electrodes_2nd:fe_ch4_2nd_"&z, "3")
+	Next
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''3
+	x1 = -(fe_x-2*eth)+2*((2*fe_x-4*eth)/5)+eth
+	x2 = -(fe_x-2*eth)+3*((2*fe_x-4*eth)/5)-eth
+
+	For z = n_first_stage To (n_second_stage+n_buffer_stage)-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		If z<n_ramp Then ' 38
+			accel_posy = vscale3*bn_adj(z)
+			accel_negy = (pdv3-c3)+ ( (negy3t-offset*vscale3*bn_accel(z))-(pdv3-c3) )*(z/n_ramp)
+		ElseIf z>=n_ramp And z<n_fstart Then
+			accel_posy = vscale3*bn_adj(z)
+			accel_negy = negy3t -offset*vscale3*bn_accel(z)
+		Else
+			accel_posy = vscale3*bn_adj(z)
+			accel_negy = negy3t -offset*vscale3*bn_adj(z)
+		End If
+
+		MakeBrick("fe_ch3_2nd_"&z, "filter_electrodes_2nd", "PEC", x1, x2, (fe_y_2nd+eth), (fe_y_2nd+eth), zstart, zstart+fe_width)
+		MirrorCopyY("filter_electrodes_2nd:fe_ch3_2nd_"&z)
+		MakePotential( "fe_ch3_2nd_"&CStr(z)&"_1", accel_negy,	"filter_electrodes_2nd:fe_ch3_2nd_"&CStr(z)&"_1", "3")
+		MakePotential( "fe_ch3_2nd_"&z, accel_posy, "filter_electrodes_2nd:fe_ch3_2nd_"&z, "3")
+	Next
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''2
+	x1 = -(fe_x-2*eth)+1*((2*fe_x-4*eth)/5)+eth
+	x2 = -(fe_x-2*eth)+2*((2*fe_x-4*eth)/5)-eth
+
+	For z = n_first_stage To (n_second_stage+n_buffer_stage)-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		If z<n_ramp Then ' 38
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = (pdv4-c4)+ ( (negy4t-offset*vscale4*bn_accel(z))-(pdv4-c4) )*(z/n_ramp)
+		ElseIf z>=n_ramp And z<n_fstart Then
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = negy4t -offset*vscale4*bn_accel(z)
+		Else
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = negy4t -offset*vscale4*bn_adj(z)
+		End If
+
+		MakeBrick("fe_ch2_2nd_"&z, "filter_electrodes_2nd", "PEC", x1, x2, (fe_y_2nd+eth), (fe_y_2nd+eth), zstart, zstart+fe_width)
+		MirrorCopyY("filter_electrodes_2nd:fe_ch2_2nd_"&z)
+		MakePotential( "fe_ch2_2nd_"&CStr(z)&"_1", accel_negy, "filter_electrodes_2nd:fe_ch2_2nd_"&CStr(z)&"_1", "3")
+		MakePotential( "fe_ch2_2nd_"&z, accel_posy, "filter_electrodes_2nd:fe_ch2_2nd_"&z, "3")
+	Next
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''1
+	x1 = -(fe_x-2*eth)+0*((2*fe_x-4*eth)/5)+eth
+	x2 = -(fe_x-2*eth)+1*((2*fe_x-4*eth)/5)-eth
+
+	For z = n_first_stage To (n_second_stage+n_buffer_stage)-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		If z<n_ramp Then ' 38
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = (pdv5-c5)+ ( (negy5t-offset*vscale5*bn_accel(z))-(pdv5-c5) )*(z/n_ramp)
+		ElseIf z>=n_ramp And z<n_fstart Then
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = negy5t -offset*vscale5*bn_accel(z)
+		Else
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = negy5t -offset*vscale5*bn_adj(z)
+		End If
+
+		MakeBrick("fe_ch1_2nd_"&z, "filter_electrodes_2nd", "PEC", x1, x2, (fe_y_2nd+eth), (fe_y_2nd+eth), zstart, zstart+fe_width)
+		MirrorCopyY("filter_electrodes_2nd:fe_ch1_2nd_"&z)
+		MakePotential( "fe_ch1_2nd_"&CStr(z)&"_1", accel_negy, "filter_electrodes_2nd:fe_ch1_2nd_"&CStr(z)&"_1", "3")
+		MakePotential( "fe_ch1_2nd_"&z, accel_posy, "filter_electrodes_2nd:fe_ch1_2nd_"&z, "3")
+	Next
+
+End Sub
+Sub MakeFilterElectrodesThirdStage()
+
+	pd_bounce = -200
+	bv_top  = -200
+	bv_bot  = -200
+
+	pdv5 = 0
+	pdv4 = 100
+	pdv3 = 200
+	pdv2 = 800
+	pdv1 = 1500
+
+	c5inj = 2500
+	c4inj = 2500
+	c3inj = 2500
+	c2inj = 2500
+	c1inj = 2500
+
+	c5 = 2500
+	c4 = 2500
+	c3 = 2500
+	c2 = 2500
+	c1 = 2500
+
+	negy5t = 0
+	negy4t = 0
+	negy3t = 0
+	negy2t = 0
+	negy1t = 0
+
+	vscale5   = (pdv5+c5)/bn_accel(0)
+	vscale4   = (pdv4+c4)/bn_accel(0)
+	vscale3   = (pdv3+c3)/bn_accel(0)
+	vscale2   = (pdv2+c2)/bn_accel(0)
+	vscale1   = (pdv1+c1)/bn_accel(0)
+
+	offset = 0.10
+	maxfrac = 0.40
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''bounce
+
+	For z = n_second_stage To n_third_stage-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		MakeBrick("b_top_3rd_"&z, "bounce_electrodes_3rd", "PEC", (fe_x-eth), (fe_x-eth), -(fe_y_3rd-eth), (fe_y_3rd-eth), _
+			zstart, zstart+fe_width)
+		MakeBrick("b_bot_3rd_"&z, "bounce_electrodes_3rd", "PEC", -(fe_x-eth), -(fe_x-eth), -(fe_y_3rd-eth), (fe_y_3rd-eth), _
+			zstart, zstart+fe_width)
+
+		If z<n_ramp Then ' 38
+			bv_top = -200
+			bv_bot = -200
+		Else
+			bv_top = -200*Sqr(bn_accel(z))
+			bv_bot = -200*Sqr(bn_accel(z))
+		End If
+
+		MakePotential( "b_top_3rd_"&z, bv_top, "bounce_electrodes_3rd:b_top_3rd_"&z, "4")
+		MakePotential( "b_bot_3rd_"&z, bv_bot, "bounce_electrodes_3rd:b_bot_3rd_"&z, "4")
+	Next
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''5
+	x1 = -(fe_x-2*eth)+4*((2*fe_x-4*eth)/5)+eth
+	x2 = -(fe_x-2*eth)+5*((2*fe_x-4*eth)/5)-eth
+
+	For z = n_second_stage To (n_third_stage+n_buffer_stage)-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		If z<n_ramp Then ' 38
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = (pdv5-c5)+ ( (negy5t-offset*vscale5*bn_accel(z))-(pdv5-c5) )*(z/n_ramp)
+		ElseIf z>=n_ramp And z<n_fstart Then
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = negy5t -offset*vscale5*bn_accel(z)
+		Else
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = negy5t -offset*vscale5*bn_adj(z)
+		End If
+
+		MakeBrick("fe_ch5_3rd_"&z, "filter_electrodes_3rd", "PEC", x1, x2, (fe_y_3rd+eth), (fe_y_3rd+eth), zstart, zstart+fe_width)
+		MirrorCopyY("filter_electrodes_3rd:fe_ch5_3rd_"&z)
+		MakePotential( "fe_ch5_3rd_"&CStr(z)&"_1", accel_negy, "filter_electrodes_3rd:fe_ch5_3rd_"&CStr(z)&"_1", "3")
+		MakePotential( "fe_ch5_3rd_"&z, accel_posy, "filter_electrodes_3rd:fe_ch5_3rd_"&z, "3")
+	Next
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''4
+	x1 = -(fe_x-2*eth)+3*((2*fe_x-4*eth)/5)+eth
+	x2 = -(fe_x-2*eth)+4*((2*fe_x-4*eth)/5)-eth
+
+	For z = n_second_stage To (n_third_stage+n_buffer_stage)-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		If z<n_ramp Then ' 38
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = (pdv4-c4)+ ( (negy4t-offset*vscale4*bn_accel(z))-(pdv4-c4) )*(z/n_ramp)
+		ElseIf z>=n_ramp And z<n_fstart Then
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = negy4t -offset*vscale4*bn_accel(z)
+		Else
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = negy4t -offset*vscale4*bn_adj(z)
+		End If
+
+		MakeBrick("fe_ch4_3rd_"&z, "filter_electrodes_3rd", "PEC", x1, x2, (fe_y_3rd+eth), (fe_y_3rd+eth), zstart, zstart+fe_width)
+		MirrorCopyY("filter_electrodes_3rd:fe_ch4_3rd_"&z)
+		MakePotential( "fe_ch4_3rd_"&CStr(z)&"_1", accel_negy, "filter_electrodes_3rd:fe_ch4_3rd_"&CStr(z)&"_1", "3")
+		MakePotential( "fe_ch4_3rd_"&z, accel_posy, "filter_electrodes_3rd:fe_ch4_3rd_"&z, "3")
+	Next
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''3
+	x1 = -(fe_x-2*eth)+2*((2*fe_x-4*eth)/5)+eth
+	x2 = -(fe_x-2*eth)+3*((2*fe_x-4*eth)/5)-eth
+
+	For z = n_second_stage To (n_third_stage+n_buffer_stage)-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		If z<n_ramp Then ' 38
+			accel_posy = vscale3*bn_adj(z)
+			accel_negy = (pdv3-c3)+ ( (negy3t-offset*vscale3*bn_accel(z))-(pdv3-c3) )*(z/n_ramp)
+		ElseIf z>=n_ramp And z<n_fstart Then
+			accel_posy = vscale3*bn_adj(z)
+			accel_negy = negy3t -offset*vscale3*bn_accel(z)
+		Else
+			accel_posy = vscale3*bn_adj(z)
+			accel_negy = negy3t -offset*vscale3*bn_adj(z)
+		End If
+
+		MakeBrick("fe_ch3_3rd_"&z, "filter_electrodes_3rd", "PEC", x1, x2, (fe_y_3rd+eth), (fe_y_3rd+eth), zstart, zstart+fe_width)
+		MirrorCopyY("filter_electrodes_3rd:fe_ch3_3rd_"&z)
+		MakePotential( "fe_ch3_3rd_"&CStr(z)&"_1", accel_negy,	"filter_electrodes_3rd:fe_ch3_3rd_"&CStr(z)&"_1", "3")
+		MakePotential( "fe_ch3_3rd_"&z, accel_posy, "filter_electrodes_3rd:fe_ch3_3rd_"&z, "3")
+	Next
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''2
+	x1 = -(fe_x-2*eth)+1*((2*fe_x-4*eth)/5)+eth
+	x2 = -(fe_x-2*eth)+2*((2*fe_x-4*eth)/5)-eth
+
+	For z = n_second_stage To (n_third_stage+n_buffer_stage)-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		If z<n_ramp Then ' 38
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = (pdv4-c4)+ ( (negy4t-offset*vscale4*bn_accel(z))-(pdv4-c4) )*(z/n_ramp)
+		ElseIf z>=n_ramp And z<n_fstart Then
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = negy4t -offset*vscale4*bn_accel(z)
+		Else
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = negy4t -offset*vscale4*bn_adj(z)
+		End If
+
+		MakeBrick("fe_ch2_3rd_"&z, "filter_electrodes_3rd", "PEC", x1, x2, (fe_y_3rd+eth), (fe_y_3rd+eth), zstart, zstart+fe_width)
+		MirrorCopyY("filter_electrodes_3rd:fe_ch2_3rd_"&z)
+		MakePotential( "fe_ch2_3rd_"&CStr(z)&"_1", accel_negy, "filter_electrodes_3rd:fe_ch2_3rd_"&CStr(z)&"_1", "3")
+		MakePotential( "fe_ch2_3rd_"&z, accel_posy, "filter_electrodes_3rd:fe_ch2_3rd_"&z, "3")
+	Next
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''1
+	x1 = -(fe_x-2*eth)+0*((2*fe_x-4*eth)/5)+eth
+	x2 = -(fe_x-2*eth)+1*((2*fe_x-4*eth)/5)-eth
+
+	For z = n_second_stage To (n_third_stage+n_buffer_stage)-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		If z<n_ramp Then ' 38
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = (pdv5-c5)+ ( (negy5t-offset*vscale5*bn_accel(z))-(pdv5-c5) )*(z/n_ramp)
+		ElseIf z>=n_ramp And z<n_fstart Then
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = negy5t -offset*vscale5*bn_accel(z)
+		Else
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = negy5t -offset*vscale5*bn_adj(z)
+		End If
+
+		MakeBrick("fe_ch1_3rd_"&z, "filter_electrodes_3rd", "PEC", x1, x2, (fe_y_3rd+eth), (fe_y_3rd+eth), zstart, zstart+fe_width)
+		MirrorCopyY("filter_electrodes_3rd:fe_ch1_3rd_"&z)
+		MakePotential( "fe_ch1_3rd_"&CStr(z)&"_1", accel_negy, "filter_electrodes_3rd:fe_ch1_3rd_"&CStr(z)&"_1", "3")
+		MakePotential( "fe_ch1_3rd_"&z, accel_posy, "filter_electrodes_3rd:fe_ch1_3rd_"&z, "3")
+	Next
+
+End Sub
+Sub MakeFilterElectrodesFourthStage()
+
+	pd_bounce = -200
+	bv_top  = -200
+	bv_bot  = -200
+
+	pdv5 = 0
+	pdv4 = 100
+	pdv3 = 200
+	pdv2 = 800
+	pdv1 = 1500
+
+	c5inj = 2500
+	c4inj = 2500
+	c3inj = 2500
+	c2inj = 2500
+	c1inj = 2500
+
+	c5 = 2500
+	c4 = 2500
+	c3 = 2500
+	c2 = 2500
+	c1 = 2500
+
+	negy5t = 0
+	negy4t = 0
+	negy3t = 0
+	negy2t = 0
+	negy1t = 0
+
+	vscale5   = (pdv5+c5)/bn_accel(0)
+	vscale4   = (pdv4+c4)/bn_accel(0)
+	vscale3   = (pdv3+c3)/bn_accel(0)
+	vscale2   = (pdv2+c2)/bn_accel(0)
+	vscale1   = (pdv1+c1)/bn_accel(0)
+
+	offset = 0.10
+	maxfrac = 0.40
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''bounce
+
+	For z = n_third_stage To n_fourth_stage-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		MakeBrick("b_top_4th_"&z, "bounce_electrodes_4th", "PEC", (fe_x-eth), (fe_x-eth), -(fe_y_4th-eth), (fe_y_4th-eth), _
+			zstart, zstart+fe_width)
+		MakeBrick("b_bot_4th_"&z, "bounce_electrodes_4th", "PEC", -(fe_x-eth), -(fe_x-eth), -(fe_y_4th-eth), (fe_y_4th-eth), _
+			zstart, zstart+fe_width)
+
+		If z<n_ramp Then ' 38
+			bv_top = -200
+			bv_bot = -200
+		Else
+			bv_top = -200*Sqr(bn_accel(z))
+			bv_bot = -200*Sqr(bn_accel(z))
+		End If
+
+		MakePotential( "b_top_4th_"&z, bv_top, "bounce_electrodes_4th:b_top_4th_"&z, "4")
+		MakePotential( "b_bot_4th_"&z, bv_bot, "bounce_electrodes_4th:b_bot_4th_"&z, "4")
+	Next
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''5
+	x1 = -(fe_x-2*eth)+4*((2*fe_x-4*eth)/5)+eth
+	x2 = -(fe_x-2*eth)+5*((2*fe_x-4*eth)/5)-eth
+
+	For z = n_third_stage To (n_fourth_stage+n_buffer_stage)-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		If z<n_ramp Then ' 38
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = (pdv5-c5)+ ( (negy5t-offset*vscale5*bn_accel(z))-(pdv5-c5) )*(z/n_ramp)
+		ElseIf z>=n_ramp And z<n_fstart Then
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = negy5t -offset*vscale5*bn_accel(z)
+		Else
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = negy5t -offset*vscale5*bn_adj(z)
+		End If
+
+		MakeBrick("fe_ch5_4th_"&z, "filter_electrodes_4th", "PEC", x1, x2, (fe_y_4th+eth), (fe_y_4th+eth), zstart, zstart+fe_width)
+		MirrorCopyY("filter_electrodes_4th:fe_ch5_4th_"&z)
+		MakePotential( "fe_ch5_4th_"&CStr(z)&"_1", accel_negy, "filter_electrodes_4th:fe_ch5_4th_"&CStr(z)&"_1", "3")
+		MakePotential( "fe_ch5_4th_"&z, accel_posy, "filter_electrodes_4th:fe_ch5_4th_"&z, "3")
+	Next
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''4
+	x1 = -(fe_x-2*eth)+3*((2*fe_x-4*eth)/5)+eth
+	x2 = -(fe_x-2*eth)+4*((2*fe_x-4*eth)/5)-eth
+
+	For z = n_third_stage To (n_fourth_stage+n_buffer_stage)-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		If z<n_ramp Then ' 38
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = (pdv4-c4)+ ( (negy4t-offset*vscale4*bn_accel(z))-(pdv4-c4) )*(z/n_ramp)
+		ElseIf z>=n_ramp And z<n_fstart Then
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = negy4t -offset*vscale4*bn_accel(z)
+		Else
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = negy4t -offset*vscale4*bn_adj(z)
+		End If
+
+		MakeBrick("fe_ch4_4th_"&z, "filter_electrodes_4th", "PEC", x1, x2, (fe_y_4th+eth), (fe_y_4th+eth), zstart, zstart+fe_width)
+		MirrorCopyY("filter_electrodes_4th:fe_ch4_4th_"&z)
+		MakePotential( "fe_ch4_4th_"&CStr(z)&"_1", accel_negy, "filter_electrodes_4th:fe_ch4_4th_"&CStr(z)&"_1", "3")
+		MakePotential( "fe_ch4_4th_"&z, accel_posy, "filter_electrodes_4th:fe_ch4_4th_"&z, "3")
+	Next
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''3
+	x1 = -(fe_x-2*eth)+2*((2*fe_x-4*eth)/5)+eth
+	x2 = -(fe_x-2*eth)+3*((2*fe_x-4*eth)/5)-eth
+
+	For z = n_third_stage To (n_fourth_stage+n_buffer_stage)-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		If z<n_ramp Then ' 38
+			accel_posy = vscale3*bn_adj(z)
+			accel_negy = (pdv3-c3)+ ( (negy3t-offset*vscale3*bn_accel(z))-(pdv3-c3) )*(z/n_ramp)
+		ElseIf z>=n_ramp And z<n_fstart Then
+			accel_posy = vscale3*bn_adj(z)
+			accel_negy = negy3t -offset*vscale3*bn_accel(z)
+		Else
+			accel_posy = vscale3*bn_adj(z)
+			accel_negy = negy3t -offset*vscale3*bn_adj(z)
+		End If
+
+		MakeBrick("fe_ch3_4th_"&z, "filter_electrodes_4th", "PEC", x1, x2, (fe_y_4th+eth), (fe_y_4th+eth), zstart, zstart+fe_width)
+		MirrorCopyY("filter_electrodes_4th:fe_ch3_4th_"&z)
+		MakePotential( "fe_ch3_4th_"&CStr(z)&"_1", accel_negy,	"filter_electrodes_4th:fe_ch3_4th_"&CStr(z)&"_1", "3")
+		MakePotential( "fe_ch3_4th_"&z, accel_posy, "filter_electrodes_4th:fe_ch3_4th_"&z, "3")
+	Next
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''2
+	x1 = -(fe_x-2*eth)+1*((2*fe_x-4*eth)/5)+eth
+	x2 = -(fe_x-2*eth)+2*((2*fe_x-4*eth)/5)-eth
+
+	For z = n_third_stage To (n_fourth_stage+n_buffer_stage)-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		If z<n_ramp Then ' 38
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = (pdv4-c4)+ ( (negy4t-offset*vscale4*bn_accel(z))-(pdv4-c4) )*(z/n_ramp)
+		ElseIf z>=n_ramp And z<n_fstart Then
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = negy4t -offset*vscale4*bn_accel(z)
+		Else
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = negy4t -offset*vscale4*bn_adj(z)
+		End If
+
+		MakeBrick("fe_ch2_4th_"&z, "filter_electrodes_4th", "PEC", x1, x2, (fe_y_4th+eth), (fe_y_4th+eth), zstart, zstart+fe_width)
+		MirrorCopyY("filter_electrodes_4th:fe_ch2_4th_"&z)
+		MakePotential( "fe_ch2_4th_"&CStr(z)&"_1", accel_negy, "filter_electrodes_4th:fe_ch2_4th_"&CStr(z)&"_1", "3")
+		MakePotential( "fe_ch2_4th_"&z, accel_posy, "filter_electrodes_4th:fe_ch2_4th_"&z, "3")
+	Next
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''1
+	x1 = -(fe_x-2*eth)+0*((2*fe_x-4*eth)/5)+eth
+	x2 = -(fe_x-2*eth)+1*((2*fe_x-4*eth)/5)-eth
+
+	For z = n_third_stage To (n_fourth_stage+n_buffer_stage)-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		If z<n_ramp Then ' 38
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = (pdv5-c5)+ ( (negy5t-offset*vscale5*bn_accel(z))-(pdv5-c5) )*(z/n_ramp)
+		ElseIf z>=n_ramp And z<n_fstart Then
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = negy5t -offset*vscale5*bn_accel(z)
+		Else
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = negy5t -offset*vscale5*bn_adj(z)
+		End If
+
+		MakeBrick("fe_ch1_4th_"&z, "filter_electrodes_4th", "PEC", x1, x2, (fe_y_4th+eth), (fe_y_4th+eth), zstart, zstart+fe_width)
+		MirrorCopyY("filter_electrodes_4th:fe_ch1_4th_"&z)
+		MakePotential( "fe_ch1_4th_"&CStr(z)&"_1", accel_negy, "filter_electrodes_4th:fe_ch1_4th_"&CStr(z)&"_1", "3")
+		MakePotential( "fe_ch1_4th_"&z, accel_posy, "filter_electrodes_4th:fe_ch1_4th_"&z, "3")
+	Next
+
+End Sub
+Sub MakeFilterElectrodesFifthStage()
+
+	pd_bounce = -200
+	bv_top  = -200
+	bv_bot  = -200
+
+	pdv5 = 0
+	pdv4 = 100
+	pdv3 = 200
+	pdv2 = 800
+	pdv1 = 1500
+
+	c5inj = 2500
+	c4inj = 2500
+	c3inj = 2500
+	c2inj = 2500
+	c1inj = 2500
+
+	c5 = 2500
+	c4 = 2500
+	c3 = 2500
+	c2 = 2500
+	c1 = 2500
+
+	negy5t = 0
+	negy4t = 0
+	negy3t = 0
+	negy2t = 0
+	negy1t = 0
+
+	vscale5   = (pdv5+c5)/bn_accel(0)
+	vscale4   = (pdv4+c4)/bn_accel(0)
+	vscale3   = (pdv3+c3)/bn_accel(0)
+	vscale2   = (pdv2+c2)/bn_accel(0)
+	vscale1   = (pdv1+c1)/bn_accel(0)
+
+	offset = 0.10
+	maxfrac = 0.40
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''bounce
+
+	For z = n_fourth_stage To n_accel-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		MakeBrick("b_top_5th_"&z, "bounce_electrodes_5th", "PEC", (fe_x-eth), (fe_x-eth), -(fe_y_5th-eth), (fe_y_5th-eth), _
+			zstart, zstart+fe_width)
+		MakeBrick("b_bot_5th_"&z, "bounce_electrodes_5th", "PEC", -(fe_x-eth), -(fe_x-eth), -(fe_y_5th-eth), (fe_y_5th-eth), _
+			zstart, zstart+fe_width)
+
+		If z<n_ramp Then ' 38
+			bv_top = -200
+			bv_bot = -200
+		Else
+			bv_top = -200*Sqr(bn_accel(z))
+			bv_bot = -200*Sqr(bn_accel(z))
+		End If
+
+		MakePotential( "b_top_5th_"&z, bv_top, "bounce_electrodes_5th:b_top_5th_"&z, "4")
+		MakePotential( "b_bot_5th_"&z, bv_bot, "bounce_electrodes_5th:b_bot_5th_"&z, "4")
+	Next
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''5
+	x1 = -(fe_x-2*eth)+4*((2*fe_x-4*eth)/5)+eth
+	x2 = -(fe_x-2*eth)+5*((2*fe_x-4*eth)/5)-eth
+
+	For z = n_fourth_stage To n_accel-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		If z<n_ramp Then ' 38
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = (pdv5-c5)+ ( (negy5t-offset*vscale5*bn_accel(z))-(pdv5-c5) )*(z/n_ramp)
+		ElseIf z>=n_ramp And z<n_fstart Then
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = negy5t -offset*vscale5*bn_accel(z)
+		Else
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = negy5t -offset*vscale5*bn_adj(z)
+		End If
+
+		MakeBrick("fe_ch5_5th_"&z, "filter_electrodes_5th", "PEC", x1, x2, (fe_y_5th+eth), (fe_y_5th+eth), zstart, zstart+fe_width)
+		MirrorCopyY("filter_electrodes_5th:fe_ch5_5th_"&z)
+		MakePotential( "fe_ch5_5th_"&CStr(z)&"_1", accel_negy, "filter_electrodes_5th:fe_ch5_5th_"&CStr(z)&"_1", "3")
+		MakePotential( "fe_ch5_5th_"&z, accel_posy, "filter_electrodes_5th:fe_ch5_5th_"&z, "3")
+	Next
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''4
+	x1 = -(fe_x-2*eth)+3*((2*fe_x-4*eth)/5)+eth
+	x2 = -(fe_x-2*eth)+4*((2*fe_x-4*eth)/5)-eth
+
+	For z = n_fourth_stage To n_accel-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		If z<n_ramp Then ' 38
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = (pdv4-c4)+ ( (negy4t-offset*vscale4*bn_accel(z))-(pdv4-c4) )*(z/n_ramp)
+		ElseIf z>=n_ramp And z<n_fstart Then
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = negy4t -offset*vscale4*bn_accel(z)
+		Else
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = negy4t -offset*vscale4*bn_adj(z)
+		End If
+
+		MakeBrick("fe_ch4_5th_"&z, "filter_electrodes_5th", "PEC", x1, x2, (fe_y_5th+eth), (fe_y_5th+eth), zstart, zstart+fe_width)
+		MirrorCopyY("filter_electrodes_5th:fe_ch4_5th_"&z)
+		MakePotential( "fe_ch4_5th_"&CStr(z)&"_1", accel_negy, "filter_electrodes_5th:fe_ch4_5th_"&CStr(z)&"_1", "3")
+		MakePotential( "fe_ch4_5th_"&z, accel_posy, "filter_electrodes_5th:fe_ch4_5th_"&z, "3")
+	Next
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''3
+	x1 = -(fe_x-2*eth)+2*((2*fe_x-4*eth)/5)+eth
+	x2 = -(fe_x-2*eth)+3*((2*fe_x-4*eth)/5)-eth
+
+	For z = n_fourth_stage To n_accel-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		If z<n_ramp Then ' 38
+			accel_posy = vscale3*bn_adj(z)
+			accel_negy = (pdv3-c3)+ ( (negy3t-offset*vscale3*bn_accel(z))-(pdv3-c3) )*(z/n_ramp)
+		ElseIf z>=n_ramp And z<n_fstart Then
+			accel_posy = vscale3*bn_adj(z)
+			accel_negy = negy3t -offset*vscale3*bn_accel(z)
+		Else
+			accel_posy = vscale3*bn_adj(z)
+			accel_negy = negy3t -offset*vscale3*bn_adj(z)
+		End If
+
+		MakeBrick("fe_ch3_5th_"&z, "filter_electrodes_5th", "PEC", x1, x2, (fe_y_5th+eth), (fe_y_5th+eth), zstart, zstart+fe_width)
+		MirrorCopyY("filter_electrodes_5th:fe_ch3_5th_"&z)
+		MakePotential( "fe_ch3_5th_"&CStr(z)&"_1", accel_negy,	"filter_electrodes_5th:fe_ch3_5th_"&CStr(z)&"_1", "3")
+		MakePotential( "fe_ch3_5th_"&z, accel_posy, "filter_electrodes_5th:fe_ch3_5th_"&z, "3")
+	Next
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''2
+	x1 = -(fe_x-2*eth)+1*((2*fe_x-4*eth)/5)+eth
+	x2 = -(fe_x-2*eth)+2*((2*fe_x-4*eth)/5)-eth
+
+	For z = n_fourth_stage To n_accel-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		If z<n_ramp Then ' 38
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = (pdv4-c4)+ ( (negy4t-offset*vscale4*bn_accel(z))-(pdv4-c4) )*(z/n_ramp)
+		ElseIf z>=n_ramp And z<n_fstart Then
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = negy4t -offset*vscale4*bn_accel(z)
+		Else
+			accel_posy = vscale4*bn_adj(z)
+			accel_negy = negy4t -offset*vscale4*bn_adj(z)
+		End If
+
+		MakeBrick("fe_ch2_5th_"&z, "filter_electrodes_5th", "PEC", x1, x2, (fe_y_5th+eth), (fe_y_5th+eth), zstart, zstart+fe_width)
+		MirrorCopyY("filter_electrodes_5th:fe_ch2_5th_"&z)
+		MakePotential( "fe_ch2_5th_"&CStr(z)&"_1", accel_negy, "filter_electrodes_5th:fe_ch2_5th_"&CStr(z)&"_1", "3")
+		MakePotential( "fe_ch2_5th_"&z, accel_posy, "filter_electrodes_5th:fe_ch2_5th_"&z, "3")
+	Next
+
+	'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+	''''''''1
+	x1 = -(fe_x-2*eth)+0*((2*fe_x-4*eth)/5)+eth
+	x2 = -(fe_x-2*eth)+1*((2*fe_x-4*eth)/5)-eth
+
+	For z = n_fourth_stage To n_accel-1
+		zstart = pd_zend_injection +z*fe_step+fe_gap
+
+		If z<n_ramp Then ' 38
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = (pdv5-c5)+ ( (negy5t-offset*vscale5*bn_accel(z))-(pdv5-c5) )*(z/n_ramp)
+		ElseIf z>=n_ramp And z<n_fstart Then
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = negy5t -offset*vscale5*bn_accel(z)
+		Else
+			accel_posy = vscale5*bn_adj(z)
+			accel_negy = negy5t -offset*vscale5*bn_adj(z)
+		End If
+
+		MakeBrick("fe_ch1_5th_"&z, "filter_electrodes_5th", "PEC", x1, x2, (fe_y_5th+eth), (fe_y_5th+eth), zstart, zstart+fe_width)
+		MirrorCopyY("filter_electrodes_5th:fe_ch1_5th_"&z)
+		MakePotential( "fe_ch1_5th_"&CStr(z)&"_1", accel_negy, "filter_electrodes_5th:fe_ch1_5th_"&CStr(z)&"_1", "3")
+		MakePotential( "fe_ch1_5th_"&z, accel_posy, "filter_electrodes_5th:fe_ch1_5th_"&z, "3")
+	Next
+
+End Sub
+
+
+Sub MakeBackplate()
+	MakeBrick("backplate", "paradrain_electrodes", "PEC", -fe_x, fe_x, -fe_y, fe_y, _
+		backplate_z +2*eth, backplate_z +3*eth)
+	MakePotential("backplate_pot", backplateV, "paradrain_electrodes:backplate", "3")
+End Sub
+Sub MakeBackring()
+	MakeCylinderX( "backring1", "target", "PEC", _
+		Rcatcher_catcher-0.001, Rcatcher_catcher, _
+		-(fe_x-2*eth), (fe_x-2*eth), _
+		0, _
+		catchz _
+	)
+	MakeBrick("backring_cutout", "target", "Vacuum", -fe_x, fe_x, -bring_cutout_y, bring_cutout_y, catchz -0.2, bring_cutout_z)
+	Solid.Subtract "target:backring1", "target:backring_cutout"
+	MakePotential("backring1_pot", backring1V, "target:backring1", "12")
+End Sub
+Sub MakeBackringBounce()
+	MakeCylinderX( "backring_btop", "target", "PEC", _
+		0, Rcatcher_catcher, _
+		(fe_x-1*eth), (fe_x), _
+		0, _
+		catchz _
+	)
+	MakeBrick("backring_cutout", "target", "Vacuum", -fe_x, fe_x, -bring_cutout_y, bring_cutout_y, catchz -0.2, bring_cutout_z)
+	Solid.Subtract "target:backring_btop", "target:backring_cutout"
+	MakePotential("backring_btop_pot", backring1V, "target:backring_btop", "9")
+
+	MakeCylinderX( "backring_bbot", "target", "PEC", _
+		0, Rcatcher_catcher, _
+		-(fe_x-1*eth), -(fe_x), _
+		0, _
+		catchz _
+	)
+	MakeBrick("backring_cutout", "target", "Vacuum", -fe_x, fe_x, -bring_cutout_y, bring_cutout_y, catchz -0.2, bring_cutout_z)
+	Solid.Subtract "target:backring_bbot", "target:backring_cutout"
+	MakePotential("backring_bbot_pot", backring1V, "target:backring_bbot", "9")
+End Sub
+Sub MakeBackCylinderPCB()
+	MakeCylinderX( "backcylinder_pcb", "target", "Epoxy resin", _
+		0, Rcatcher_catcher, _
+		-(fe_x), (fe_x), _
+		0, _
+		catchz _
+	)
+	MakeCylinderX( "backcylinder_pcb_cutout", "target", "Vacuum", _
+		0, Rcatcher_catcher-0.001, _
+		-(fe_x-1*eth), (fe_x-1*eth), _
+		0, _
+		catchz _
+	)
+	MakeBrick("backcylinder_box_cutout", "target", "Vacuum", _
+		-fe_x, fe_x, -bring_cutout_y, bring_cutout_y, catchz -0.2, bring_cutout_z)
+
+	Solid.Subtract "target:backcylinder_pcb", "target:backcylinder_pcb_cutout"
+	Solid.Subtract "target:backcylinder_pcb", "target:backcylinder_box_cutout"
+End Sub
+
+Sub MakeCatcherRings()
+	MakeCylinderX( "catcher_ring1", "target", "PEC", _
+		0.049, 0.05, _
+		ringstartx, ringstartx+ringlen1, _
+		0, _
+		catchz _
+	)
+
+	MakeCylinderX( "catcher_ring2", "target", "PEC", _
+		0.049, 0.05, _
+		ringstartx+ringlen1+eth, ringstartx+ringlen1+eth+ringlen2, _
+		0, _
+		catchz _
+	)
+
+	MakeCylinderX( "catcher_ring3", "target", "PEC", _
+		0.049, 0.05, _
+		ringstartx+ringlen1+eth+ringlen2+eth, ringstartx+ringlen1+eth+ringlen2+eth+ringlen3, _
+		0, _
+		catchz _
+	)
+
+	MirrorCopyX("target:catcher_ring1")
+	MirrorCopyX("target:catcher_ring2")
+	MirrorCopyX("target:catcher_ring3")
+
+	MakePotential( "catcher_ring1_pot", catchVring1,"target:catcher_ring1", "2")
+	MakePotential( "catcher_ring2_pot", catchVring2,"target:catcher_ring2", "2")
+	MakePotential( "catcher_ring3_pot", catchVring3,"target:catcher_ring3", "2")
+
+	MakePotential( "catcher_ring1_pot1", catchVring1,"target:catcher_ring1_1", "2")
+	MakePotential( "catcher_ring2_pot1", catchVring2,"target:catcher_ring2_1", "2")
+	MakePotential( "catcher_ring3_pot1", catchVring3,"target:catcher_ring3_1", "2")
+End Sub
+Sub MakeCatcher()
+	'Rcan 1cm
+
+	MakeCylinderX( "catcher_base", "target", "PEC", _
+		0.0, 2*Rcan, _
+		ringstartx+ringlen1+eth+ringlen2+eth+ringlen3+eth+catchxgap, ringstartx+ringlen1+eth+ringlen2+eth+ringlen3+eth+catchxgap+eth, _
+		0, _
+		catchz _
+	)
+
+	MakeCylinderX( "catcher_catcher", "target", "PEC", _
+		2*Rcan+eth, Rcatcher_catcher, _
+		ringstartx+ringlen1+eth+ringlen2+eth+ringlen3+eth+catchxgap, ringstartx+ringlen1+eth+ringlen2+eth+ringlen3+eth+catchxgap+eth, _
+		0, _
+		catchz _
+	)
+
+	MirrorCopyX("target:catcher_base")
+	MirrorCopyX("target:catcher_catcher")
+
+	MakePotential( "catcher_base_pot", catchVinner,"target:catcher_base", "2")
+	MakePotential( "catcher_catcher_pot", catchVcatcher,"target:catcher_catcher", "2")
+
+	MakePotential( "catcher_base_pot1", catchVinner,"target:catcher_base_1", "2")
+	MakePotential( "catcher_catcher_pot1", catchVcatcher,"target:catcher_catcher_1", "2")
+
+End Sub
+
+''''''' Particles
+
+Sub MakeTestParticles()
+	Dim n_pitch, n_theta, n_bunch, n_energies As Integer
+	Dim pitch_start, pitch_step, ipitch, _
+		theta_start, theta_step, ienergy, _
+		energy_step, bunch_separation As Double
+
+	pitch = 85
+	n_pitch = 5
+	pitch_step = 20
+
+	KE = 18600
+	n_energies = 1
+	energy_step = 7000
+
+	n_theta = 4
+	theta_start = 0
+	theta_step = 90
+
+	n_bunch = 1
+	bunch_separation = 0.3
+
+	For i = 1 To n_pitch
+		For j = 1 To n_energies
+			For k = 1 To n_bunch
+
+			' x +y
+			' x +z
+			' x -y
+			' x -z                                                                                                                                                
+
+			ipitch = pitch-(i-1)*pitch_step
+			ienergy = KE-(j-1)*energy_step
+
+			' MakeParticle( "z2_p"&(ipitch)&"_th0_e"&(ienergy), _
+			' 	pmx+eth*CosD(mrot), 0, pmz-eth*SinD(mrot), _
+			' 	CosD(mrot)*CosD(ipitch), SinD(ipitch), -SinD(mrot)*CosD(ipitch), _
+			' 	ienergy _
+			' )
+			' MakeParticle( "z2_p"&(ipitch)&"_th90_e"&(ienergy), _
+			' 	pmx+eth*CosD(mrot), 0, pmz-eth*SinD(mrot), _
+			' 	CosD(mrot)*CosD(ipitch)+SinD(mrot)*SinD(ipitch), 0, -SinD(mrot)*CosD(ipitch)+CosD(mrot)*SinD(ipitch), _
+			' 	ienergy _
+			' )
+			MakeParticle( "z2_p"&(ipitch)&"_th180_e"&(ienergy), _
+				pmx+eth*CosD(mrot), 0, pmz-eth*SinD(mrot), _
+				CosD(mrot)*CosD(ipitch), -SinD(ipitch), -SinD(mrot)*CosD(ipitch), _
+				ienergy _
+			)
+			' MakeParticle( "z2_p"&(ipitch)&"_th270_e"&(ienergy), _
+			' 	pmx+eth*CosD(mrot), 0, pmz-eth*SinD(mrot), _
+			' 	CosD(mrot)*CosD(ipitch) -SinD(mrot)*SinD(ipitch), 0, -SinD(mrot)*CosD(ipitch) -CosD(mrot)*SinD(ipitch), _
+			' 	ienergy _
+			' )
+
+			If mirrorparticles = True Then
+				MakeParticle( "z2m_p"&(ipitch)&"_th0_e"&(ienergy), _
+					-(pmx+eth*CosD(mrot)), 0, pmz-eth*SinD(mrot), _
+					CosD(180-mrot)*CosD(ipitch), SinD(ipitch), -SinD(180-mrot)*CosD(ipitch), _
+					ienergy _
+				)
+				MakeParticle( "z2m_p"&(ipitch)&"_th90_e"&(ienergy), _
+					-(pmx+eth*CosD(mrot)), 0, pmz-eth*SinD(mrot), _
+					CosD(180-mrot)*CosD(ipitch)+SinD(180-mrot)*SinD(ipitch), 0, -SinD(180-mrot)*CosD(ipitch)+CosD(180-mrot)*SinD(ipitch), _
+					ienergy _
+				)
+				MakeParticle( "z2m_p"&(ipitch)&"_th180_e"&(ienergy), _
+					-(pmx+eth*CosD(mrot)), 0, pmz-eth*SinD(mrot), _
+					CosD(180-mrot)*CosD(ipitch), -SinD(ipitch), -SinD(180-mrot)*CosD(ipitch), _
+					ienergy _
+				)
+				MakeParticle( "z2m_p"&(ipitch)&"_th270_e"&(ienergy), _
+					-(pmx+eth*CosD(mrot)), 0, pmz-eth*SinD(mrot), _
+					CosD(180-mrot)*CosD(ipitch) -SinD(180-mrot)*SinD(ipitch), 0, -SinD(180-mrot)*CosD(ipitch) -CosD(180-mrot)*SinD(ipitch), _
+					ienergy _
+				)
+			End If
+
+			Next
+		Next
+	Next
+End Sub
+Sub MakeParticleRing()
+
+	' emission density, scale factor
+	' 90, 1 = 3497 @ 0.0045 to 0.0055
+
+	' MakeCylinderX( "ring", "target", "Vacuum", _
+	' 	Rtarget_inner, Rtarget_outer, _
+	' 	pmx-eth, pmx+eth, _
+	' 	0, _
+	' 	pmz _
+	' )
+	' RotateCommonCenterY("target:ring", mrot)
+
+	' With ParticleSource
+	' 	.Reset
+	' 	.Name "particle1"
+	' 	.ParticleType "electron"
+	' 	.Charge "-1.602176634e-19"
+	' 	.Mass "9.1093837015e-31"
+	' 	.SourceType "Faces"
+	' 	.AddFace "target:ring", "3"
+	' 	.ScaleTriangularizationToMesh "True"
+	' 	.FacetOptions "90", "1" ' emission density, max scale factor
+	' 	.TrkEmissionModel "Fixed"
+	' 	.TrkKinetic "Energy", "Uniform", "18600", "0", pitchrange, "300", "100"
+	' 	.TrkFixed "1", "CURRENT"
+	' 	.Create
+	' End With
+
+	' For pring_theta = 20 To 20 Step 10
+		' For pring_phi = 0 To 315 Step 45
+
+	With ParticleSource
+		.Reset
+		.Name "pring_th"&CStr(pring_theta)&"_phi"&CStr(pring_phi)
+		.ParticleType "electron"
+		.Charge "-1.602176634e-19"
+		.Mass "9.1093837015e-31"
+		.SourceType "Circle"
+		.UsePickCircle "False"
+		.CircleCenterPoint "-0.25272553725231", "0", "-1.302961597733"
+		.CircleNormal "0.27446274768781", "0", "-0.96159773301088"
+		.CircleRadius Rtarget_outer
+		.CircleRadiusInner Rtarget_inner
+		.CircleRadiusLines Rtarget_lines
+		.CircleOblique pring_theta, pring_phi
+		.RadialFunction "constant"
+		.TrkEmissionModel "Fixed"
+		.TrkKinetic "Energy", "Uniform", "18600", "0", pring_anglespread, "300", "100"
+		.TrkFixed "1", "CURRENT"
+		.Create
+	End With
+
+		' Next
+	' Next
+
+End Sub
+
+'''''''''''''''''''''''''''''''''''''''''''
+''''''' Constructors
+
+Sub MakeBrick( _
+	name As String, comp As String, mat As String, _
+	x1 As Double, x2 As Double, _
+	y1 As Double, y2 As Double, _
+	z1 As Double, z2 As Double)
+
+    With Brick
+        .Reset
+        .Name name
+        .Component comp
+        .Material mat
+        .Xrange x1, x2
+        .Yrange y1, y2
+        .Zrange z1, z2
+        .Create
+    End With
+End Sub
+Sub MakeCylinderX( _
+	name As String, comp As String, mat As String, _
+	Rin As Double, Rout As Double, _
+	x1 As Double, x2 As Double, _
+	ycenter As Double, _
+	zcenter As Double)
+
+	With Cylinder 
+		.Reset 
+		.Name name 
+		.Component comp
+		.Material mat
+		.InnerRadius Rin
+		.OuterRadius Rout 
+		.Axis "x" 
+		.Xrange x1, x2
+		.Ycenter ycenter
+		.Zcenter zcenter
+		.Segments "0" 
+		.Create 
+	End With
+End Sub
+Sub MakeSweepCurve( _
+	name As String, comp As String, mat As String, _
+	cross_section As String, profile As String _
+	)
+
+	With SweepCurve
+		.Reset
+		.Name name
+		.Component comp
+		.Material mat
+		.Twistangle "0.0"
+		.Taperangle "0.0"
+		.ProjectProfileToPathAdvanced "True"
+		.CutEndOff "True"
+		.DeleteProfile "True"
+		.DeletePath "True"
+		.Path profile
+		.Curve cross_section
+		.Create
+	End With
+End Sub
+Sub MirrorCopyMagnetsX( _
+	solidname As String _
+	)
+
+	With Transform 
+		.Reset 
+		.Name solidname
+		.Origin "Free" 
+		.Center "0", "0", "0" 
+		.PlaneNormal "1", "0", "0" 
+		.MultipleObjects "True" 
+		.GroupObjects "False" 
+		.Repetitions "1" 
+		.MultipleSelection "False" 
+		.Destination "" 
+		.Material "" 
+		.AutoDestination "True"
+		.CopyAttached "Magnets"
+		.Transform "Shape", "Mirror"
+	End With
+
+End Sub
+Sub MirrorCopyY( _
+	solidname As String _
+	)
+
+	With Transform 
+		.Reset 
+		.Name solidname
+		.Origin "Free" 
+		.Center "0", "0", "0" 
+		.PlaneNormal "0", "1", "0" 
+		.MultipleObjects "True" 
+		.GroupObjects "False" 
+		.Repetitions "1" 
+		.MultipleSelection "False" 
+		.Destination "" 
+		.Material "" 
+		.AutoDestination "True" 
+		.Transform "Shape", "Mirror" 
+	End With
+
+End Sub
+Sub MirrorCopyX( _
+	solidname As String _
+	)
+
+	With Transform 
+		.Reset 
+		.Name solidname
+		.Origin "Free" 
+		.Center "0", "0", "0" 
+		.PlaneNormal "1", "0", "0" 
+		.MultipleObjects "True" 
+		.GroupObjects "False" 
+		.Repetitions "1" 
+		.MultipleSelection "False" 
+		.Destination "" 
+		.Material "" 
+		.AutoDestination "True" 
+		.Transform "Shape", "Mirror" 
+	End With
+
+End Sub
+Sub RotateCommonCenterY( _
+	solidname As String, rotdeg as Double _
+	)
+
+	With Transform 
+		.Reset 
+		.Name solidname 
+		.Origin "CommonCenter" 
+		.Center "0", "0", "0" 
+		.Angle "0", rotdeg, "0" 
+		.MultipleObjects "False" 
+		.GroupObjects "False" 
+		.Repetitions "1" 
+		.MultipleSelection "False" 
+		.AutoDestination "True" 
+		.Transform "Shape", "Rotate" 
+	End With
+
+End Sub
+Sub RotateFreeCenterY( _
+	solidname As String, rotdeg As Double, _
+	cx As Double, cy As Double, cz As Double _
+	)
+
+	With Transform 
+		.Reset 
+		.Name solidname
+		.Origin "Free" 
+		.Center cx, cy, cz
+		.Angle "0", rotdeg, "0" 
+		.MultipleObjects "False" 
+		.GroupObjects "False" 
+		.Repetitions "1" 
+		.MultipleSelection "False" 
+		.AutoDestination "True" 
+		.Transform "Shape", "Rotate" 
+	End With
+End Sub
+Sub MakePotential( _
+	name As String, value As Double, _
+	solidname As String, face As String )
+
+	With Potential
+		.Reset
+		.Name name
+		.Value value
+		.Phase "0"
+		.AddFace solidname, face
+		.Type "Fixed"
+		.Create
+	End With
+End Sub
+Sub MakeParticle( _
+	name As String, _
+	px As Double, py As Double, pz As Double, _
+	nx As Double, ny As Double, nz As Double, _
+	energy As Double _
+	)
+
+	With ParticleSource
+		.Reset
+		.Name name
+		.ParticleType "electron"
+		.Charge "-1.602176565e-19"
+		.Mass "9.1093810e-31"
+		.SourceType "SinglePoint"
+		.UsePickPoint "False"
+		.StartPoint px, py, pz
+		.StartNormal nx, ny, nz
+		.StartArea "1e-9"
+		.TrkEmissionModel "Fixed"
+		.TrkKinetic "Energy", "Uniform", energy, "0", "0", "300", "100"
+		.TrkFixed "1", "CURRENT"
+		.Create
+	End With
+End Sub
+
+'''''''''''''''''''''''''''''''''''''''''''
+''''''' Mesh and Simulation
+
+Sub MakeMesh()
+
+	Group.Add "localized_mesh", "mesh"
+	Group.Add "catch_mesh", "mesh"
+
+	With Mesh 
+	     .MeshType "PBA" 
+	     .SetCreator "Tracking"
+	End With 
+	With MeshSettings 
+	     .SetMeshType "Hex" 
+	     .Set "Version", 1%
+	     'MAX CELL - WAVELENGTH REFINEMENT 
+	     .Set "StepsPerWaveNear", "22" 
+	     .Set "StepsPerWaveFar", "5" 
+	     .Set "WavelengthRefinementSameAsNear", "0" 
+	     'MAX CELL - GEOMETRY REFINEMENT 
+	     .Set "StepsPerBoxNear", "15" 
+	     .Set "StepsPerBoxFar", "15" 
+	     .Set "MaxStepNear", "0.1" 
+	     .Set "MaxStepFar", "0.1" 
+	     .Set "ModelBoxDescrNear", "maxedge" 
+	     .Set "ModelBoxDescrFar", "maxedge" 
+	     .Set "UseMaxStepAbsolute", "0" 
+	     .Set "GeometryRefinementSameAsNear", "0" 
+	     'MIN CELL 
+	     .Set "UseRatioLimitGeometry", "0" 
+	     .Set "RatioLimitGeometry", "90" 
+	     .Set "MinStepGeometryX", mesh_step_x
+	     .Set "MinStepGeometryY", mesh_step_y
+	     .Set "MinStepGeometryZ", mesh_step_z
+	     .Set "UseSameMinStepGeometryXYZ", "1" 
+	End With 
+	With MeshSettings 
+	     .Set "PlaneMergeVersion", "2" 
+	End With 
+	With MeshSettings 
+	     .SetMeshType "Hex" 
+	     .Set "FaceRefinementType", "NONE" 
+	     .Set "FaceRefinementRatio", "2" 
+	     .Set "FaceRefinementStep", "0" 
+	     .Set "FaceRefinementNSteps", "2" 
+	     .Set "EllipseRefinementType", "NONE" 
+	     .Set "EllipseRefinementRatio", "2" 
+	     .Set "EllipseRefinementStep", "0" 
+	     .Set "EllipseRefinementNSteps", "2" 
+	     .Set "FaceRefinementBufferLines", "3" 
+	     .Set "EdgeRefinementType", "RATIO" 
+	     .Set "EdgeRefinementRatio", "2" 
+	     .Set "EdgeRefinementStep", "0" 
+	     .Set "EdgeRefinementBufferLines", "3" 
+	     .Set "RefineEdgeMaterialGlobal", "0" 
+	     .Set "RefineAxialEdgeGlobal", "0" 
+	     .Set "BufferLinesNear", "3" 
+	     .Set "UseDielectrics", "1" 
+	     .Set "EquilibrateOn", "0" 
+	     .Set "Equilibrate", "1.5" 
+	     .Set "IgnoreThinPanelMaterial", "0" 
+	End With 
+	With MeshSettings 
+	     .SetMeshType "Hex" 
+	     .Set "SnapToAxialEdges", "1"
+	     .Set "SnapToPlanes", "1"
+	     .Set "SnapToSpheres", "1"
+	     .Set "SnapToEllipses", "1"
+	     .Set "SnapToCylinders", "1"
+	     .Set "SnapToCylinderCenters", "1"
+	     .Set "SnapToEllipseCenters", "1"
+	     .Set "SnapToTori", "0"
+	End With 
+	With Mesh 
+	     .ConnectivityCheck "True"
+	     .UsePecEdgeModel "True" 
+	     .PointAccEnhancement "0" 
+	     .TSTVersion "2"
+		  .PBAVersion "2020071020" 
+	     .SetCADProcessingMethod "MultiThread22", "-1" 
+	     .SetGPUForMatrixCalculationDisabled "False" 
+	End With
+
+	With MeshSettings
+		With .ItemMeshSettings ("group$localized_mesh")
+			.SetMeshType "Hex"
+			.Set "EdgeRefinement", "20"
+			.Set "Extend", "0", "0", "0"
+			.Set "Fixpoints", 1
+			.Set "MeshType", "Default"
+			.Set "NumSteps", "0", "0", "0"
+			.Set "Priority", "0"
+			.Set "RefinementPolicy", "ABS_VALUE"
+			.Set "SnappingIntervals", 0, 0, 0
+			.Set "SnappingPriority", 0
+			.Set "SnapTo", "1", "1", "1"
+			.Set "Step", mesh_step_x, mesh_step_y, mesh_step_z
+			.Set "StepRatio", "0", "0", "0"
+			.Set "StepRefinementCollectPolicy", "REFINE_INTERIOR"
+			.Set "StepRefinementExtentPolicy", "EXTENT_ABS_VALUE"
+			.Set "UseDielectrics", 1
+			.Set "UseEdgeRefinement", 0
+			.Set "UseForRefinement", 1
+			.Set "UseForSnapping", 1
+			.Set "UseSameExtendXYZ", 1
+			.Set "UseSameStepWidthXYZ", 0
+			.Set "UseSnappingPriority", 0
+			.Set "UseStepAndExtend", 1
+			.Set "UseVolumeRefinement", 0
+			.Set "VolumeRefinement", "1"
+		End With
+	End With
+	With MeshSettings
+		With .ItemMeshSettings ("group$catch_mesh")
+			.SetMeshType "Hex"
+			.Set "EdgeRefinement", "20"
+			.Set "Extend", "0", "0", "0"
+			.Set "Fixpoints", 1
+			.Set "MeshType", "Default"
+			.Set "NumSteps", "0", "0", "0"
+			.Set "Priority", "0"
+			.Set "RefinementPolicy", "ABS_VALUE"
+			.Set "SnappingIntervals", 0, 0, 0
+			.Set "SnappingPriority", 0
+			.Set "SnapTo", "1", "1", "1"
+			.Set "Step", 2*mesh_step_x, 2*mesh_step_y, 2*mesh_step_z
+			.Set "StepRatio", "0", "0", "0"
+			.Set "StepRefinementCollectPolicy", "REFINE_INTERIOR"
+			.Set "StepRefinementExtentPolicy", "EXTENT_ABS_VALUE"
+			.Set "UseDielectrics", 1
+			.Set "UseEdgeRefinement", 0
+			.Set "UseForRefinement", 1
+			.Set "UseForSnapping", 1
+			.Set "UseSameExtendXYZ", 1
+			.Set "UseSameStepWidthXYZ", 0
+			.Set "UseSnappingPriority", 0
+			.Set "UseStepAndExtend", 1
+			.Set "UseVolumeRefinement", 0
+			.Set "VolumeRefinement", "1"
+		End With
+	End With
+
+	MakeBrick("filter_mesh", "mesh", "Vacuum", _
+		-fmesh_x, fmesh_x, _
+		-fmesh_y, fmesh_y, _
+		fmesh_z_start, fmesh_z_end _
+	)
+	Group.AddItem "solid$mesh:filter_mesh", "localized_mesh"
+	Group.AddItem "solid$mesh:filter_mesh", "Excluded from Simulation"
+	Group.AddItem "solid$mesh:filter_mesh", "Excluded from Bounding Box"
+
+	MakeBrick("injection_mesh", "mesh", "Vacuum", _
+		tmesh_x, tmesh_xtop, _
+		-fmesh_y, fmesh_y, _
+		tmesh_z_start, fmesh_z_start _
+	)
+	Group.AddItem "solid$mesh:injection_mesh", "localized_mesh"
+	Group.AddItem "solid$mesh:injection_mesh", "Excluded from Simulation"
+	Group.AddItem "solid$mesh:injection_mesh", "Excluded from Bounding Box"
+
+	If withcatchermesh = True Then
+		MakeBrick("catcher_mesh", "mesh", "Vacuum", _
+			-((fe_x+eth+4*fe_x)+0.01), ((fe_x+eth+4*fe_x)+0.01), _
+			-(Rcatchshell+0.01), (Rcatchshell+0.01), _
+			catchz-Rcatchshell-0.01, catchz+Rcatchshell+0.01 _
+		)
+		Group.AddItem "solid$mesh:catcher_mesh", "catch_mesh"
+		Group.AddItem "solid$mesh:catcher_mesh", "Excluded from Simulation"
+		Group.AddItem "solid$mesh:catcher_mesh", "Excluded from Bounding Box"
+	End If
+
+End Sub
+Sub DefineMaterials()
+	' Iron
+	With Material
+		.Reset
+		.Name "Iron-PEC"
+		.Folder ""
+		.Rho "7870.0"
+		.ThermalType "Normal"
+		.ThermalConductivity "79.5"
+		.SpecificHeat "450", "J/K/kg"
+		.DynamicViscosity "0"
+		.Emissivity "0"
+		.MetabolicRate "0"
+		.VoxelConvection "0"
+		.BloodFlow "0"
+		.MechanicsType "Isotropic"
+		.YoungsModulus "200"
+		.PoissonsRatio "0.291"
+		.ThermalExpansionRate "12"
+		.FrqType "hf"
+		.Type "Lossy metal"
+		.MaterialUnit "Frequency", "Hz"
+		.MaterialUnit "Geometry", "mm"
+		.MaterialUnit "Time", "s"
+		.Mu "1"
+		.Sigma "1.04e+007"
+		.LossyMetalSIRoughness "0.0"
+		.ReferenceCoordSystem "Global"
+		.CoordSystemType "Cartesian"
+		.NonlinearMeasurementError "1e-1"
+		.NLAnisotropy "False"
+		.NLAStackingFactor "1"
+		.NLADirectionX "1"
+		.NLADirectionY "0"
+		.NLADirectionZ "0"
+		.FrqType "all"
+		.Type "Normal"
+		.MaterialUnit "Frequency", "Hz"
+		.MaterialUnit "Geometry", "mm"
+		.MaterialUnit "Time", "s"
+		.Epsilon "1"
+		.Mu "1000"
+		.Sigma "1.04e+007"
+		.TanD "0.0"
+		.TanDFreq "0.0"
+		.TanDGiven "False"
+		.TanDModel "ConstSigma"
+		.EnableUserConstTanDModelOrderEps "False"
+		.ConstTanDModelOrderEps "1"
+		.SetElParametricConductivity "False"
+		.ReferenceCoordSystem "Global"
+		.CoordSystemType "Cartesian"
+		.SigmaM "0"
+		.TanDM "0.0"
+		.TanDMFreq "0.0"
+		.TanDMGiven "False"
+		.TanDMModel "ConstSigma"
+		.EnableUserConstTanDModelOrderMu "False"
+		.ConstTanDModelOrderMu "1"
+		.SetMagParametricConductivity "False"
+		.DispModelEps  "None"
+		.DispModelMu "None"
+		.DispersiveFittingSchemeEps "Nth Order"
+		.MaximalOrderNthModelFitEps "10"
+		.ErrorLimitNthModelFitEps "0.1"
+		.UseOnlyDataInSimFreqRangeNthModelEps "False"
+		.DispersiveFittingSchemeMu "Nth Order"
+		.MaximalOrderNthModelFitMu "10"
+		.ErrorLimitNthModelFitMu "0.1"
+		.UseOnlyDataInSimFreqRangeNthModelMu "False"
+		.UseGeneralDispersionEps "False"
+		.UseGeneralDispersionMu "False"
+		.NonlinearMeasurementError "1e-3"
+		.ResetHBList
+		.SetNonlinearCurveType "Soft-Magnetic-BH"
+		.AddNonlinearCurveValue " 0.000000e+000", " 0.000000e+000"
+		.AddNonlinearCurveValue " 1.592000e+001", " 4.500000e-002"
+		.AddNonlinearCurveValue " 3.183000e+001", " 4.900000e-001"
+		.AddNonlinearCurveValue " 4.775000e+001", " 7.800000e-001"
+		.AddNonlinearCurveValue " 6.366000e+001", " 9.900000e-001"
+		.AddNonlinearCurveValue " 7.958000e+001", " 1.130000e+000"
+		.AddNonlinearCurveValue " 1.592000e+002", " 1.420000e+000"
+		.AddNonlinearCurveValue " 3.183000e+002", " 1.570000e+000"
+		.AddNonlinearCurveValue " 4.775000e+002", " 1.621000e+000"
+		.AddNonlinearCurveValue " 6.366000e+002", " 1.641000e+000"
+		.AddNonlinearCurveValue " 7.958000e+002", " 1.656000e+000"
+		.AddNonlinearCurveValue " 1.592000e+003", " 1.697000e+000"
+		.AddNonlinearCurveValue " 3.183000e+003", " 1.764000e+000"
+		.AddNonlinearCurveValue " 4.775000e+003", " 1.801000e+000"
+		.AddNonlinearCurveValue " 6.366000e+003", " 1.838000e+000"
+		.AddNonlinearCurveValue " 7.958000e+003", " 1.870000e+000"
+		.AddNonlinearCurveValue " 1.592000e+004", " 2.000000e+000"
+		.AddNonlinearCurveValue " 3.183000e+004", " 2.136000e+000"
+		.AddNonlinearCurveValue " 4.775000e+004", " 2.185000e+000"
+		.AddNonlinearCurveValue " 6.366000e+004", " 2.220000e+000"
+		.AddNonlinearCurveValue " 7.958000e+004", " 2.250000e+000"
+		.AddNonlinearCurveValue " 1.592000e+005", " 2.355000e+000"
+		.AddNonlinearCurveValue " 3.183000e+005", " 2.556000e+000"
+		.GenerateNonlinearCurve
+		.NLAnisotropy "False"
+		.NLAStackingFactor "1"
+		.NLADirectionX "1"
+		.NLADirectionY "0"
+		.NLADirectionZ "0"
+		.FrqType "static"
+		.Type "Pec"
+		.MaterialUnit "Frequency", "Hz"
+		.MaterialUnit "Geometry", "mm"
+		.MaterialUnit "Time", "s"
+		.Epsilon "1.0"
+		.Mu "4000"
+		.ReferenceCoordSystem "Global"
+		.CoordSystemType "Cartesian"
+		.NonlinearMeasurementError "1e-3"
+		.ResetHBList
+		.SetNonlinearCurveType "Soft-Magnetic-BH"
+		.AddNonlinearCurveValue " 0.000000e+000", " 0.000000e+000"
+		.AddNonlinearCurveValue " 1.592000e+001", " 4.500000e-002"
+		.AddNonlinearCurveValue " 3.183000e+001", " 4.900000e-001"
+		.AddNonlinearCurveValue " 4.775000e+001", " 7.800000e-001"
+		.AddNonlinearCurveValue " 6.366000e+001", " 9.900000e-001"
+		.AddNonlinearCurveValue " 7.958000e+001", " 1.130000e+000"
+		.AddNonlinearCurveValue " 1.592000e+002", " 1.420000e+000"
+		.AddNonlinearCurveValue " 3.183000e+002", " 1.570000e+000"
+		.AddNonlinearCurveValue " 4.775000e+002", " 1.621000e+000"
+		.AddNonlinearCurveValue " 6.366000e+002", " 1.641000e+000"
+		.AddNonlinearCurveValue " 7.958000e+002", " 1.656000e+000"
+		.AddNonlinearCurveValue " 1.592000e+003", " 1.697000e+000"
+		.AddNonlinearCurveValue " 3.183000e+003", " 1.764000e+000"
+		.AddNonlinearCurveValue " 4.775000e+003", " 1.801000e+000"
+		.AddNonlinearCurveValue " 6.366000e+003", " 1.838000e+000"
+		.AddNonlinearCurveValue " 7.958000e+003", " 1.870000e+000"
+		.AddNonlinearCurveValue " 1.592000e+004", " 2.000000e+000"
+		.AddNonlinearCurveValue " 3.183000e+004", " 2.136000e+000"
+		.AddNonlinearCurveValue " 4.775000e+004", " 2.185000e+000"
+		.AddNonlinearCurveValue " 6.366000e+004", " 2.220000e+000"
+		.AddNonlinearCurveValue " 7.958000e+004", " 2.250000e+000"
+		.AddNonlinearCurveValue " 1.592000e+005", " 2.355000e+000"
+		.AddNonlinearCurveValue " 3.183000e+005", " 2.556000e+000"
+		.GenerateNonlinearCurve
+		.NLAnisotropy "False"
+		.NLAStackingFactor "1"
+		.NLADirectionX "1"
+		.NLADirectionY "0"
+		.NLADirectionZ "0"
+		.Colour "0", "0.25098", "0.25098"
+		.Wireframe "False"
+		.Reflection "False"
+		.Allowoutline "True"
+		.Transparentoutline "False"
+		.Transparency "0"
+		.Create
+	End With
+
+	With Material 
+		.Reset 
+		.Name "Iron-normal"
+		.Folder ""
+		.Rho "7870.0"
+		.ThermalType "Normal"
+		.ThermalConductivity "79.5"
+		.SpecificHeat "450", "J/K/kg"
+		.DynamicViscosity "0"
+		.UseEmissivity "True"
+		.Emissivity "0"
+		.MetabolicRate "0"
+		.VoxelConvection "0"
+		.BloodFlow "0"
+		.Absorptance "0"
+		.MechanicsType "Isotropic"
+		.YoungsModulus "200"
+		.PoissonsRatio "0.291"
+		.ThermalExpansionRate "12"
+		.IntrinsicCarrierDensity "0"
+		.FrqType "static"
+		.Type "Normal"
+		.MaterialUnit "Frequency", "Hz"
+		.MaterialUnit "Geometry", "mm"
+		.MaterialUnit "Time", "s"
+		.Epsilon "1.0"
+		.Mu "1000"
+		.Sigma "0.0"
+		.TanD "0.0"
+		.TanDFreq "0.0"
+		.TanDGiven "False"
+		.TanDModel "ConstTanD"
+		.SetConstTanDStrategyEps "AutomaticOrder"
+		.ConstTanDModelOrderEps "3"
+		.DjordjevicSarkarUpperFreqEps "0"
+		.SetElParametricConductivity "False"
+		.ReferenceCoordSystem "Global"
+		.CoordSystemType "Cartesian"
+		.SigmaM "0"
+		.TanDM "0.0"
+		.TanDMFreq "0.0"
+		.TanDMGiven "False"
+		.TanDMModel "ConstTanD"
+		.SetConstTanDStrategyMu "AutomaticOrder"
+		.ConstTanDModelOrderMu "3"
+		.DjordjevicSarkarUpperFreqMu "0"
+		.SetMagParametricConductivity "False"
+		.DispModelEps  "None"
+		.DispModelMu "None"
+		.DispersiveFittingSchemeEps "Nth Order"
+		.MaximalOrderNthModelFitEps "10"
+		.ErrorLimitNthModelFitEps "0.1"
+		.UseOnlyDataInSimFreqRangeNthModelEps "False"
+		.DispersiveFittingSchemeMu "Nth Order"
+		.MaximalOrderNthModelFitMu "10"
+		.ErrorLimitNthModelFitMu "0.1"
+		.UseOnlyDataInSimFreqRangeNthModelMu "False"
+		.UseGeneralDispersionEps "False"
+		.UseGeneralDispersionMu "False"
+		.NonlinearMeasurementError "1e-3"
+		.ResetHBList
+		.SetNonlinearCurveType "Soft-Magnetic-BH"
+		.AddNonlinearCurveValue "0", "0"
+		.AddNonlinearCurveValue "10", "0.003"
+		.AddNonlinearCurveValue "25", "0.007"
+		.AddNonlinearCurveValue "50", "0.015"
+		.AddNonlinearCurveValue "75", "0.026"
+		.AddNonlinearCurveValue "108", "0.05"
+		.AddNonlinearCurveValue "137", "0.1"
+		.AddNonlinearCurveValue "160", "0.15"
+		.AddNonlinearCurveValue "180", "0.2"
+		.AddNonlinearCurveValue "200", "0.25"
+		.AddNonlinearCurveValue "235", "0.35"
+		.AddNonlinearCurveValue "285", "0.5"
+		.AddNonlinearCurveValue "320", "0.6"
+		.AddNonlinearCurveValue "365", "0.7"
+		.AddNonlinearCurveValue "480", "0.9"
+		.AddNonlinearCurveValue "560", "1"
+		.AddNonlinearCurveValue "660", "1.1"
+		.AddNonlinearCurveValue "800", "1.2"
+		.AddNonlinearCurveValue "1000", "1.3"
+		.AddNonlinearCurveValue "1150", "1.354"
+		.AddNonlinearCurveValue "1550", "1.45"
+		.AddNonlinearCurveValue "1840", "1.5"
+		.AddNonlinearCurveValue "2250", "1.55"
+		.AddNonlinearCurveValue "2800", "1.6"
+		.AddNonlinearCurveValue "3450", "1.65"
+		.AddNonlinearCurveValue "4350", "1.7"
+		.AddNonlinearCurveValue "5500", "1.75"
+		.AddNonlinearCurveValue "7707", "1.81"
+		.AddNonlinearCurveValue "1.1863e+04", "1.89"
+		.AddNonlinearCurveValue "1.5839e+04", "1.945"
+		.AddNonlinearCurveValue "2.1076e+04", "2"
+		.AddNonlinearCurveValue "2.7281e+04", "2.05"
+		.AddNonlinearCurveValue "3.5288e+04", "2.1"
+		.AddNonlinearCurveValue "4.5642e+04", "2.15"
+		.AddNonlinearCurveValue "5.9046e+04", "2.2"
+		.AddNonlinearCurveValue "7.6412e+04", "2.25"
+		.AddNonlinearCurveValue "9.8907e+04", "2.3"
+		.AddNonlinearCurveValue "1.28e+05", "2.35"
+		.AddNonlinearCurveValue "1.34764e+05", "2.36"
+		.AddNonlinearCurveValue "1.4188e+05", "2.37"
+		.AddNonlinearCurveValue "1.49364e+05", "2.38"
+		.AddNonlinearCurveValue "1.57235e+05", "2.39"
+		.GenerateNonlinearCurve
+		.SetNonlinearTemperatureDependency "False"
+		.SetNonlinearCurveDefaultTemperature "293.15"
+		.SetNonlinearCurveTemperatureUnit "K"
+		.AddNonlinearCurveTemperature "293.15"
+		.NonlinearMeasurementError "1e-3"
+		.ResetHBList
+		.SetNonlinearCurveType "Soft-Magnetic-BH"
+		.AddNonlinearCurveValue "0", "0"
+		.AddNonlinearCurveValue "20.721094073771", "0.81103461961167"
+		.AddNonlinearCurveValue "357.61648215026", "1.1023886087996"
+		.AddNonlinearCurveValue "424.10899295483", "1.2111996180089"
+		.AddNonlinearCurveValue "2496.5755665583", "1.6090577218477"
+		.AddNonlinearCurveValue "3785.6748169637", "1.677520657793"
+		.AddNonlinearCurveValue "5264.7637795276", "1.7482293320308"
+		.AddNonlinearCurveValue "1.05157019846203e+04", "1.8714577846323"
+		.AddNonlinearCurveValue "1.30532532117696e+04", "1.9093192382666"
+		.AddNonlinearCurveValue "1.55908044389188e+04", "1.9470128175556"
+		.AddNonlinearCurveValue "1.85145047658516e+04", "1.9798611959132"
+		.AddNonlinearCurveValue "2.39757563199337e+04", "2.0241926531156"
+		.AddNonlinearCurveValue "2.94370078740157e+04", "2.0627056065602"
+		.AddNonlinearCurveValue "3.21676336510568e+04", "2.0812694042637"
+		.AddNonlinearCurveValue "3.48982594280978e+04", "2.1002488093784"
+		.AddNonlinearCurveValue "3.76288852051388e+04", "2.1106389946602"
+		.AddNonlinearCurveValue "4.03595109821799e+04", "2.125046718251"
+		.AddNonlinearCurveValue "4.30901367592209e+04", "2.1380690838042"
+		.AddNonlinearCurveValue "4.85513883133029e+04", "2.1599577407979"
+		.AddNonlinearCurveValue "5.1282014090344e+04", "2.1693781754534"
+		.AddNonlinearCurveValue "5.4012639867385e+04", "2.1807381113615"
+		.AddNonlinearCurveValue "5.6743265644426e+04", "2.1920980472696"
+		.AddNonlinearCurveValue "6.22045171985081e+04", "2.2081682005055"
+		.AddNonlinearCurveValue "6.49351429755491e+04", "2.2150949906934"
+		.AddNonlinearCurveValue "6.76657687525901e+04", "2.2228529957038"
+		.AddNonlinearCurveValue "7.03963945296312e+04", "2.2319963587518"
+		.AddNonlinearCurveValue "7.31270203066722e+04", "2.2386460773321"
+		.AddNonlinearCurveValue "7.85882718607542e+04", "2.2536079441379"
+		.AddNonlinearCurveValue "8.13188976377953e+04", "2.2594264478957"
+		.AddNonlinearCurveValue "8.40495234148363e+04", "2.2652449516535"
+		.AddNonlinearCurveValue "8.67801491918773e+04", "2.2707863838038"
+		.AddNonlinearCurveValue "8.95107749689184e+04", "2.2766048875617"
+		.AddNonlinearCurveValue "9.22414007459594e+04", "2.283808749357"
+		.AddNonlinearCurveValue "9.49720265230004e+04", "2.2893501815073"
+		.AddNonlinearCurveValue "1.03163903854123e+05", "2.3048661915282"
+		.AddNonlinearCurveValue "1.05894529631165e+05", "2.3092993372484"
+		.AddNonlinearCurveValue "1.08625155408206e+05", "2.3151178410062"
+		.AddNonlinearCurveValue "1.11355781185247e+05", "2.3187197719039"
+		.AddNonlinearCurveValue "1.14086406962288e+05", "2.3220446311941"
+		.AddNonlinearCurveValue "1.16817032739329e+05", "2.3275860633444"
+		.AddNonlinearCurveValue "1.1954765851637e+05", "2.3331274954947"
+		.AddNonlinearCurveValue "1.22278284293411e+05", "2.33811478443"
+		.AddNonlinearCurveValue "1.25008910070452e+05", "2.3411625721126"
+		.AddNonlinearCurveValue "1.27739535847493e+05", "2.3476910718647"
+		.AddNonlinearCurveValue "1.30470161624534e+05", "2.3505830067681"
+		.AddNonlinearCurveValue "1.3330422019616e+05", "2.3585488154842"
+		.AddNonlinearCurveValue "1.35718637144041e+05", "2.3627939483279"
+		.AddNonlinearCurveValue "1.38662038955657e+05", "2.3636053723213"
+		.AddNonlinearCurveValue "1.44123290509739e+05", "2.3702550909017"
+		.AddNonlinearCurveValue "1.4685391628678e+05", "2.3741340934069"
+		.AddNonlinearCurveValue "1.49453121571878e+05", "2.3766114395447"
+		.AddNonlinearCurveValue "1.52315167840862e+05", "2.3793984539497"
+		.AddNonlinearCurveValue "1.55045793617903e+05", "2.3838315996699"
+		.GenerateNonlinearCurve
+		.NLAnisotropy "False"
+		.NLAStackingFactor "1"
+		.NLADirectionX "1"
+		.NLADirectionY "0"
+		.NLADirectionZ "0"
+		.FrqType "all"
+		.Type "Normal"
+		.MaterialUnit "Frequency", "Hz"
+		.MaterialUnit "Geometry", "mm"
+		.MaterialUnit "Time", "s"
+		.Epsilon "1"
+		.Mu "1000"
+		.Sigma "1.04e+007"
+		.TanD "0.0"
+		.TanDFreq "0.0"
+		.TanDGiven "False"
+		.TanDModel "ConstSigma"
+		.SetConstTanDStrategyEps "AutomaticOrder"
+		.ConstTanDModelOrderEps "1"
+		.DjordjevicSarkarUpperFreqEps "0"
+		.SetElParametricConductivity "False"
+		.ReferenceCoordSystem "Global"
+		.CoordSystemType "Cartesian"
+		.SigmaM "0"
+		.TanDM "0.0"
+		.TanDMFreq "0.0"
+		.TanDMGiven "False"
+		.TanDMModel "ConstSigma"
+		.SetConstTanDStrategyMu "AutomaticOrder"
+		.ConstTanDModelOrderMu "1"
+		.DjordjevicSarkarUpperFreqMu "0"
+		.SetMagParametricConductivity "False"
+		.DispModelEps  "None"
+		.DispModelMu "None"
+		.DispersiveFittingSchemeEps "Nth Order"
+		.MaximalOrderNthModelFitEps "10"
+		.ErrorLimitNthModelFitEps "0.1"
+		.UseOnlyDataInSimFreqRangeNthModelEps "False"
+		.DispersiveFittingSchemeMu "Nth Order"
+		.MaximalOrderNthModelFitMu "10"
+		.ErrorLimitNthModelFitMu "0.1"
+		.UseOnlyDataInSimFreqRangeNthModelMu "False"
+		.UseGeneralDispersionEps "False"
+		.UseGeneralDispersionMu "False"
+		.NonlinearMeasurementError "1e-3"
+		.ResetHBList
+		.SetNonlinearCurveType "Soft-Magnetic-BH"
+		.AddNonlinearCurveValue " 0.000000e+000", " 0.000000e+000"
+		.AddNonlinearCurveValue " 1.592000e+001", " 4.500000e-002"
+		.AddNonlinearCurveValue " 3.183000e+001", " 4.900000e-001"
+		.AddNonlinearCurveValue " 4.775000e+001", " 7.800000e-001"
+		.AddNonlinearCurveValue " 6.366000e+001", " 9.900000e-001"
+		.AddNonlinearCurveValue " 7.958000e+001", " 1.130000e+000"
+		.AddNonlinearCurveValue " 1.592000e+002", " 1.420000e+000"
+		.AddNonlinearCurveValue " 3.183000e+002", " 1.570000e+000"
+		.AddNonlinearCurveValue " 4.775000e+002", " 1.621000e+000"
+		.AddNonlinearCurveValue " 6.366000e+002", " 1.641000e+000"
+		.AddNonlinearCurveValue " 7.958000e+002", " 1.656000e+000"
+		.AddNonlinearCurveValue " 1.592000e+003", " 1.697000e+000"
+		.AddNonlinearCurveValue " 3.183000e+003", " 1.764000e+000"
+		.AddNonlinearCurveValue " 4.775000e+003", " 1.801000e+000"
+		.AddNonlinearCurveValue " 6.366000e+003", " 1.838000e+000"
+		.AddNonlinearCurveValue " 7.958000e+003", " 1.870000e+000"
+		.AddNonlinearCurveValue " 1.592000e+004", " 2.000000e+000"
+		.AddNonlinearCurveValue " 3.183000e+004", " 2.136000e+000"
+		.AddNonlinearCurveValue " 4.775000e+004", " 2.185000e+000"
+		.AddNonlinearCurveValue " 6.366000e+004", " 2.220000e+000"
+		.AddNonlinearCurveValue " 7.958000e+004", " 2.250000e+000"
+		.AddNonlinearCurveValue " 1.592000e+005", " 2.355000e+000"
+		.AddNonlinearCurveValue " 3.183000e+005", " 2.556000e+000"
+		.GenerateNonlinearCurve
+		.NLAnisotropy "False"
+		.NLAStackingFactor "1"
+		.NLADirectionX "1"
+		.NLADirectionY "0"
+		.NLADirectionZ "0"
+		.FrqType "hf"
+		.Type "Lossy metal"
+		.MaterialUnit "Frequency", "Hz"
+		.MaterialUnit "Geometry", "mm"
+		.MaterialUnit "Time", "s"
+		.Mu "1"
+		.Sigma "1.04e+007"
+		.LossyMetalSIRoughness "0.0"
+		.ReferenceCoordSystem "Global"
+		.CoordSystemType "Cartesian"
+		.NonlinearMeasurementError "1e-1"
+		.NLAnisotropy "False"
+		.NLAStackingFactor "1"
+		.NLADirectionX "1"
+		.NLADirectionY "0"
+		.NLADirectionZ "0"
+		.Colour "0", "0.168627", "0.211765" 
+		.Wireframe "False" 
+		.Reflection "False" 
+		.Allowoutline "True" 
+		.Transparentoutline "False" 
+		.Transparency "0" 
+		.Create
+	End With
+
+	' Vacuum
+	With Material
+		.Reset
+		.Name "Vacuum"
+		.Folder ""
+		.FrqType "all"
+		.Type "Normal"
+		.SetMaterialUnit "Hz", "mm"
+		.Mu "1.0"
+		.Kappa "0"
+		.TanD "0.0"
+		.TanDFreq "0.0"
+		.TanDGiven "False"
+		.TanDModel "ConstKappa"
+		.KappaM "0"
+		.TanDM "0.0"
+		.TanDMFreq "0.0"
+		.TanDMGiven "False"
+		.TanDMModel "ConstKappa"
+		.DispModelEps "None"
+		.DispModelMu "None"
+		.DispersiveFittingSchemeEps "General 1st"
+		.DispersiveFittingSchemeMu "General 1st"
+		.UseGeneralDispersionEps "False"
+		.UseGeneralDispersionMu "False"
+		.Rho "0"
+		.ThermalConductivity "0"
+		.SetActiveMaterial "all"
+		.Colour "1", "1", "1"
+		.Wireframe "True"
+		.Transparency "80"
+		.Create
+	End With
+
+	' PEC
+	With Material
+		.Reset
+		.Name "PEC"
+		.Folder ""
+		.FrqType "all"
+		.Type "PEC"
+		.SetMaterialUnit "Hz", "mm"
+		.Epsilon "1"
+		.Mu "1"
+		.Rho "0"
+		.ThermalType "PTC"
+		.SetActiveMaterial "all"
+		.Colour "0.8", "0.8", "0.8"
+		.Wireframe "False"
+		.Transparency "0"
+		.Create
+	End With
+
+	' Epoxy resin
+	With Material
+		.Reset
+		.Name "Epoxy resin"
+		.Folder ""
+		.Rho "1500"
+		.ThermalType "Normal"
+		.ThermalConductivity "0.2"
+		.SpecificHeat "0", "J/K/kg"
+		.DynamicViscosity "0"
+		.Emissivity "0"
+		.MetabolicRate "0.0"
+		.VoxelConvection "0.0"
+		.BloodFlow "0"
+		.MechanicsType "Isotropic"
+		.YoungsModulus "13"
+		.PoissonsRatio "0.45"
+		.ThermalExpansionRate "0.0"
+		.FrqType "all"
+		.Type "Normal"
+		.MaterialUnit "Frequency", "GHz"
+		.MaterialUnit "Geometry", "mm"
+		.MaterialUnit "Time", "s"
+		.Epsilon "5.2"
+		.Mu "1"
+		.Sigma "0"
+		.TanD "0.0"
+		.TanDFreq "0.0"
+		.TanDGiven "False"
+		.TanDModel "ConstTanD"
+		.EnableUserConstTanDModelOrderEps "False"
+		.ConstTanDModelOrderEps "1"
+		.SetElParametricConductivity "False"
+		.ReferenceCoordSystem "Global"
+		.CoordSystemType "Cartesian"
+		.SigmaM "0"
+		.TanDM "0.0"
+		.TanDMFreq "0.0"
+		.TanDMGiven "False"
+		.TanDMModel "ConstTanD"
+		.EnableUserConstTanDModelOrderMu "False"
+		.ConstTanDModelOrderMu "1"
+		.SetMagParametricConductivity "False"
+		.DispModelEps  "None"
+		.DispModelMu "None"
+		.DispersiveFittingSchemeEps "1st Order"
+		.DispersiveFittingSchemeMu "1st Order"
+		.UseGeneralDispersionEps "False"
+		.UseGeneralDispersionMu "False"
+		.NLAnisotropy "False"
+		.NLAStackingFactor "1"
+		.NLADirectionX "1"
+		.NLADirectionY "0"
+		.NLADirectionZ "0"
+		.Colour "0.160784", "0.431373", "0.00392157"  
+		.Wireframe "False"
+		.Reflection "False"
+		.Allowoutline "True"
+		.Transparentoutline "False"
+		.Transparency "0"
+		.Create
+	End With
+
+	' Stainless steel
+	With Material
+		.Reset
+		.Name "SS"
+		.Folder "Folder1"
+		.Rho "0.0"
+		.ThermalType "Normal"
+		.ThermalConductivity "0"
+		.SpecificHeat "0", "J/K/kg"
+		.DynamicViscosity "0"
+		.Emissivity "0"
+		.MetabolicRate "0.0"
+		.VoxelConvection "0.0"
+		.BloodFlow "0"
+		.MechanicsType "Unused"
+		.FrqType "all"
+		.Type "Pec"
+		.MaterialUnit "Frequency", "Hz"
+		.MaterialUnit "Geometry", "m"
+		.MaterialUnit "Time", "s"
+		.MaterialUnit "Temperature", "Kelvin"
+		.Epsilon "1.0"
+		.Mu "1"
+		.ReferenceCoordSystem "Global"
+		.CoordSystemType "Cartesian"
+		.NLAnisotropy "False"
+		.NLAStackingFactor "1"
+		.NLADirectionX "1"
+		.NLADirectionY "0"
+		.NLADirectionZ "0"
+		.Colour "0.752941", "0.752941", "0.752941"
+		.Wireframe "False"
+		.Reflection "False"
+		.Allowoutline "True"
+		.Transparentoutline "False"
+		.Transparency "50"
+		.Create
+	End With 
+End Sub
+Sub DefineComponents()
+
+	With Units 
+		.SetUnit "Length", "m"
+		.SetUnit "Temperature", "degC"
+		.SetUnit "Voltage", "V"
+		.SetUnit "Current", "A"
+		.SetUnit "Resistance", "Ohm"
+		.SetUnit "Conductance", "S"
+		.SetUnit "Capacitance", "pF"
+		.SetUnit "Inductance", "nH"
+		.SetUnit "Frequency", "GHz"
+		.SetUnit "Time", "ns"
+		.SetResultUnit "frequency", "frequency", "" 
+	End With
+
+	Component.New "magnet"
+	Component.New "bounce_electrodes"
+	Component.New "bounce_electrodes_2nd"
+	Component.New "bounce_electrodes_3rd"
+	Component.New "bounce_electrodes_4th"
+	Component.New "bounce_electrodes_5th"
+	Component.New "filter_electrodes"
+	Component.New "filter_electrodes_2nd"
+	Component.New "filter_electrodes_3rd"
+	Component.New "filter_electrodes_4th"
+	Component.New "filter_electrodes_5th"
+
+	Component.New "paradrain_electrodes"
+	Component.New "mesh"
+	Component.New "target"
+
+	Curve.NewCurve "magnet_curve"
+	Curve.NewCurve "coil_curve"
+	Curve.NewCurve "bounce_curve"
+	Curve.NewCurve "electrode_curve"
+	Curve.NewCurve "paradrain_curve"
+End Sub
+Sub BcomputeEnone()
+	ComputeB = True
+	Bimport = False
+
+	ComputeE = False
+	Eimport = False
+End Sub
+Sub BimportEcompute()
+	ComputeB = False
+	Bimport = True
+
+	ComputeE = True
+	Eimport = False
+End Sub
+Sub BimportEimport()
+	ComputeB = False
+	Bimport = True
+
+	ComputeE = False
+	Eimport = True
+End Sub
+Sub SetSolvers()
+
+	SetBoundary()
+	SetBackground()
+	SetEStaticSolver()
+	SetMStaticSolver()
+
+	SetImportedFields()
+	SetTrackingSolver()
+End Sub
+Sub SetBoundary()
+     With Boundary
+          .Xmin boundarytype
+          .Xmax boundarytype
+          .Ymin boundarytype
+          .Ymax boundarytype
+          .Zmin boundarytype
+          .Zmax boundarytype
+          .Xsymmetry "none"
+          .Ysymmetry "none"
+          .Zsymmetry "none"
+          .ApplyInAllDirections "True"
+     End With
+End Sub
+Sub SetBackground()
+
+     With Background
+          .ResetBackground
+          .XminSpace background_space
+          .XmaxSpace background_space
+          .YminSpace background_space
+          .YmaxSpace background_space
+          .ZminSpace zmin_background_space
+          .ZmaxSpace zmax_background_space
+          .ApplyInAllDirections "False"
+     End With
+
+	With Material 
+		.Reset 
+		.Rho "0"
+		.ThermalType "Normal"
+		.ThermalConductivity "0"
+		.SpecificHeat "0", "J/K/kg"
+		.DynamicViscosity "0"
+		.UseEmissivity "True"
+		.Emissivity "0"
+		.MetabolicRate "0.0"
+		.VoxelConvection "0.0"
+		.BloodFlow "0"
+		.MechanicsType "Unused"
+		.IntrinsicCarrierDensity "0"
+		.FrqType "all"
+		.Type "Normal"
+		.MaterialUnit "Frequency", "Hz"
+		.MaterialUnit "Geometry", "mm"
+		.MaterialUnit "Time", "s"
+		.Epsilon "1.0"
+		.Mu "1.0"
+		.Sigma "0"
+		.TanD "0.0"
+		.TanDFreq "0.0"
+		.TanDGiven "False"
+		.TanDModel "ConstTanD"
+		.SetConstTanDStrategyEps "AutomaticOrder"
+		.ConstTanDModelOrderEps "3"
+		.DjordjevicSarkarUpperFreqEps "0"
+		.SetElParametricConductivity "False"
+		.ReferenceCoordSystem "Global"
+		.CoordSystemType "Cartesian"
+		.SigmaM "0"
+		.TanDM "0.0"
+		.TanDMFreq "0.0"
+		.TanDMGiven "False"
+		.TanDMModel "ConstTanD"
+		.SetConstTanDStrategyMu "AutomaticOrder"
+		.ConstTanDModelOrderMu "3"
+		.DjordjevicSarkarUpperFreqMu "0"
+		.SetMagParametricConductivity "False"
+		.DispModelEps  "None"
+		.DispModelMu "None"
+		.DispersiveFittingSchemeEps "1st Order"
+		.DispersiveFittingSchemeMu "1st Order"
+		.UseGeneralDispersionEps "False"
+		.UseGeneralDispersionMu "False"
+		.NLAnisotropy "False"
+		.NLAStackingFactor "1"
+		.NLADirectionX "1"
+		.NLADirectionY "0"
+		.NLADirectionZ "0"
+		.Colour "0.5", "0.8", "1" 
+		.Wireframe "False" 
+		.Reflection "False" 
+		.Allowoutline "True" 
+		.Transparentoutline "False" 
+		.Transparency "0" 
+		.ChangeBackgroundMaterial
+	End With
+End Sub
+Sub SetEStaticSolver()
+
+	With EStaticSolver
+	Mesh.SetCreator "Tracking" 
+
+		.Method "Hexahedral Mesh"
+		.Accuracy "1e-12"
+		.CalcCapacitanceMatrix "False"
+		.StoreResultsInCache "False"
+		.MeshAdaption "False"
+		.TetAdaption "False"
+		.UseMaxNumberOfThreads "True"
+		.MaxNumberOfThreads "48"
+		.MaximumNumberOfCPUDevices "4"
+		.UseDistributedComputing "False"
+	End With
+End Sub
+Sub SetMStaticSolver()
+
+	With MStaticSolver
+	Mesh.SetCreator "Tracking" 
+
+		.Method "Hexahedral Mesh"
+		.Accuracy "1e-12"
+		.ApparentInductanceMatrix "False"
+		.IncrementalInductanceMatrix "False"
+		.StoreResultsInCache "False"
+		.MeshAdaption "False"
+		.PrecomputeStationaryCurrentSource "False"
+		.TetAdaption "False"
+		.UseMaxNumberOfThreads "True"
+		.MaxNumberOfThreads "48"
+		.MaximumNumberOfCPUDevices "4"
+		.UseDistributedComputing "False"
+	End With
+End Sub
+Sub SetImportedFields()
+     If (Eimport = True Or Bimport = True) Then
+          With PredefinedField
+          		.Reset
+				.FieldType "External"
+				.UseLocalCopyOnly "False"
+				.UpdateLocalCopies "False"
+				.ExternalFieldMur "1.0"
+               If Eimport = True Then
+                    .SetExternalField "True", e_field_file, "1.0", "0.0", "0", "False"
+                    .SetExternalFieldDescription "0", "<mesh:hex><filename:field_se_e.m3d>"
+                    .SetExternalFieldSpaceShift "0", "0.0", "0.0", "0.0"
+                    .SetExternalFieldTimeSignal "0", "[Constant]"
+                    .SetExternalFieldTimeShift "0", "0.0"
+               End If
+               If Bimport = True Then
+                    .SetExternalField "True", b_field_file, "1.0", "0.0", "1", "False"
+                    .SetExternalFieldDescription "1", "<mesh:hex><filename:field_sh_b.m3d>"
+                    .SetExternalFieldSpaceShift "1", "0.0", "0.0", "0.0"
+                    .SetExternalFieldTimeSignal "1", "[Constant]"
+                    .SetExternalFieldTimeShift "1", "0.0"
+                    ' .SetExternalField "True", b_field_file, "1.0", "0.0", "2", "False"
+                    ' .SetExternalFieldDescription "2", "<mesh:hex><filename:field_sh_h.m3d>"
+                    ' .SetExternalFieldSpaceShift "2", "0.0", "0.0", "0.0"
+                    ' .SetExternalFieldTimeSignal "2", "[Constant]"
+                    ' .SetExternalFieldTimeShift "2", "0.0"
+               End If
+               .Create
+          End With
+     End If
+End Sub
+Sub SetTrackingSolver()
+	Mesh.SetCreator "Tracking" 
+	Mesh.SetFlavor "Low Frequency" 
+    With TrackingSolver
+
+		.StoreResultsInDataCache "False"
+		.Method "Hexahedral"
+		.SolverOrderTet "2"
+		.SetSimulationTime "5"
+		.SetNumTimeIterations "1000"
+		.SetNeglectSpaceCharge "False"
+		.SetNeglectPECCharging "True"
+		.MaxTimeSteps max_time_steps
+		.SetTemporalDynamic "1"
+		.SetSpatialSamplingRate spatial_sampling
+		.ConsiderSpacecharge "False"
+		.SetGunIteration "False"
+		.SetGunIterationMaxN "10"
+		.SetGunIterationAccuracy "-30 dB"
+		.SetGunIterationRelaxation "0.3"
+		.SetGunIterationWithHField "False"
+		If SaveTraj = False Then
+			.SetTrajectorySampling "TRAJECTORIES_DISABLED", ""
+		Else
+			.SetTrajectorySampling "FIXED", traj_sampling
+		End If
+		.AddTrackingSource "all sources", ""
+		If (Eimport = True Or Bimport = True) Then
+		.AddStaticsField "External", "1.0", "False"
+		End If
+		If ComputeE = True Then
+		.AddStaticsField "E-static", "1.0", "False"
+		End If
+		If ComputeB = True Then
+		.AddStaticsField "M-static", "1.0", "False"
+		End If
+		' If AnalyticB = True Then
+		' .AddStaticsField "Analytic", "1.0", "False"
+		' End If
+		.DefaultBoundaryEstatic "normal"
+		.DefaultBoundaryMstatic boundarytype
+		.ParticleSurfaceLosses "False", "False", "True", "", "", "False"
+		.ParticleMerging "False", "100", "10"
+	End With
+	With TrackingSolver 
+		.UseMaxNumberOfThreads "True"
+		.MaxNumberOfThreads "1024"
+		.MaximumNumberOfCPUDevices "2"
+		.UseDistributedComputing "False"
+	End With
+	UseDistributedComputingForParameters "False"
+	MaxNumberOfDistributedComputingParameters "2"
+	UseDistributedComputingMemorySetting "False"
+	MinDistributedComputingMemoryLimit "0"
+	UseDistributedComputingSharedDirectory "False"
+	OnlyConsider0D1DResultsForDC "False"
+End Sub
+Sub SetPTTracking()
+	ChangeSolverType "PT Tracking"
+End Sub
+Sub SetPTMonitors()
+	With Particle2DMonitor
+		.Reset
+		.Name "monitor1"
+		.NumPlanes "51"
+		.NormalDirection "2"
+		.Limits "X", -fe_x, fe_x
+		.Limits "Y", -fe_y_2nd, fe_y_2nd
+		.Limits "Z", -1.5, -1.0
+		.TimeSettings "0", "1", "0", "False"
+		.Create
+	End With
+	With Particle2DMonitor
+		.Reset
+		.Name "monitor2"
+		.NumPlanes "51"
+		.NormalDirection "2"
+		.Limits "X", -fe_x, fe_x
+		.Limits "Y", -fe_y_2nd, fe_y_2nd
+		.Limits "Z", -1.0, -0.5
+		.TimeSettings "0", "1", "0", "False"
+		.Create
+	End With
+	With Particle2DMonitor
+		.Reset
+		.Name "monitor3"
+		.NumPlanes "51"
+		.NormalDirection "2"
+		.Limits "X", -fe_x, fe_x
+		.Limits "Y", -fe_y_2nd, fe_y_2nd
+		.Limits "Z", -0.5, 0.0
+		.TimeSettings "0", "1", "0", "False"
+		.Create
+	End With
+	With Particle2DMonitor
+		.Reset
+		.Name "monitor4"
+		.NumPlanes "51"
+		.NormalDirection "2"
+		.Limits "X", -fe_x, fe_x
+		.Limits "Y", -fe_y_2nd, fe_y_2nd
+		.Limits "Z", 0.0, 0.5
+		.TimeSettings "0", "1", "0", "False"
+		.Create
+	End With
+	With Particle2DMonitor
+		.Reset
+		.Name "monitor5"
+		.NumPlanes "51"
+		.NormalDirection "2"
+		.Limits "X", -fe_x, fe_x
+		.Limits "Y", -fe_y_2nd, fe_y_2nd
+		.Limits "Z", 0.5, 1.0
+		.TimeSettings "0", "1", "0", "False"
+		.Create
+	End With
+	With Particle2DMonitor
+		.Reset
+		.Name "monitor6"
+		.NumPlanes "51"
+		.NormalDirection "2"
+		.Limits "X", -fe_x, fe_x
+		.Limits "Y", -fe_y_2nd, fe_y_2nd
+		.Limits "Z", 1.0, 1.5
+		.TimeSettings "0", "1", "0", "False"
+		.Create
+	End With
+End Sub
+Sub SetMStatic()
+	ChangeSolverType "LF MStatic"
+End Sub
+
+'''''''''''''''''''''''''''''''''''''''''''
+
+Sub SetBn_accel()
+	bn_accel(  0    )    =  0.049460897181421194 	' z=-1.409 
+	bn_accel(  1    )    =  0.054761413259229855 	' z=-1.389 
+	bn_accel(  2    )    =  0.06075506153235411 	' z=-1.369 
+	bn_accel(  3    )    =  0.06754267566494641 	' z=-1.349 
+	bn_accel(  4    )    =  0.07524573243350535 	' z=-1.329 
+	bn_accel(  5    )    =  0.08400158793171894 	' z=-1.309 
+	bn_accel(  6    )    =  0.09398967844382691 	' z=-1.289 
+	bn_accel(  7    )    =  0.10539102818578801 	' z=-1.269 
+	bn_accel(  8    )    =  0.118459706232632 	' z=-1.249 
+	bn_accel(  9    )    =  0.13348154029376735 	' z=-1.229 
+	bn_accel(  10    )    =  0.15082175466454942 	' z=-1.209 
+	bn_accel(  11    )    =  0.1709011512504962 	' z=-1.189 
+	bn_accel(  12    )    =  0.19429138547042477 	' z=-1.169 
+	bn_accel(  13    )    =  0.22166732830488287 	' z=-1.149 
+	bn_accel(  14    )    =  0.25388646288209604 	' z=-1.129 
+	bn_accel(  15    )    =  0.2919888844779674 	' z=-1.109 
+	bn_accel(  16    )    =  0.33722111949186184 	' z=-1.089 
+	bn_accel(  17    )    =  0.39095672886065896 	' z=-1.069 
+	bn_accel(  18    )    =  0.45452957522826515 	' z=-1.049 
+	bn_accel(  19    )    =  0.5288844779674474 	' z=-1.029 
+	bn_accel(  20    )    =  0.6139102818578801 	' z=-1.009 
+	bn_accel(  21    )    =  0.7070821754664549 	' z=-0.989 
+	bn_accel(  22    )    =  0.8011115522032551 	' z=-0.969 
+	bn_accel(  23    )    =  0.8828106391425169 	' z=-0.949 
+	bn_accel(  24    )    =  0.9400555776101627 	' z=-0.929 
+	bn_accel(  25    )    =  0.9722905915045652 	' z=-0.909 
+	bn_accel(  26    )    =  0.9878523223501389 	' z=-0.889 
+	bn_accel(  27    )    =  0.9947598253275108 	' z=-0.869 
+	bn_accel(  28    )    =  0.9976974990075426 	' z=-0.849 
+	bn_accel(  29    )    =  0.9989678443826915 	' z=-0.829 
+	bn_accel(  30    )    =  0.9995236204843191 	' z=-0.809 
+	bn_accel(  31    )    =  0.9997618102421596 	' z=-0.789 
+	bn_accel(  32    )    =  0.9998412068281064 	' z=-0.769 
+	bn_accel(  33    )    =  0.9999206034140532 	' z=-0.749 
+	bn_accel(  34    )    =  0.9999206034140532 	' z=-0.729 
+	bn_accel(  35    )    =  0.9999206034140532 	' z=-0.709 
+	bn_accel(  36    )    =  0.9999206034140532 	' z=-0.689 
+	bn_accel(  37    )    =  0.9999206034140532 	' z=-0.669 
+	bn_accel(  38    )    =  1.0 	' z=-0.649 
+	bn_accel(  39    )    =  1.0 	' z=-0.629 
+	bn_accel(  40    )    =  1.0 	' z=-0.609 
+	bn_accel(  41    )    =  1.0 	' z=-0.589 
+	bn_accel(  42    )    =  1.0 	' z=-0.569 
+	bn_accel(  43    )    =  1.0 	' z=-0.549 
+	bn_accel(  44    )    =  1.0 	' z=-0.529 
+	bn_accel(  45    )    =  1.0 	' z=-0.509 
+	bn_accel(  46    )    =  1.0 	' z=-0.489 
+	bn_accel(  47    )    =  1.0 	' z=-0.469 
+	bn_accel(  48    )    =  1.0 	' z=-0.449 
+	bn_accel(  49    )    =  1.0 	' z=-0.429 
+	bn_accel(  50    )    =  1.0 	' z=-0.409 
+	bn_accel(  51    )    =  1.0 	' z=-0.389 
+	bn_accel(  52    )    =  1.0 	' z=-0.369 
+	bn_accel(  53    )    =  0.9999206034140532 	' z=-0.349 
+	bn_accel(  54    )    =  0.9999206034140532 	' z=-0.329 
+	bn_accel(  55    )    =  0.9999206034140532 	' z=-0.309 
+	bn_accel(  56    )    =  0.9999206034140532 	' z=-0.289 
+	bn_accel(  57    )    =  0.9999206034140532 	' z=-0.269 
+	bn_accel(  58    )    =  0.9999206034140532 	' z=-0.249 
+	bn_accel(  59    )    =  0.9998412068281064 	' z=-0.229 
+	bn_accel(  60    )    =  0.9998412068281064 	' z=-0.209 
+	bn_accel(  61    )    =  0.9997618102421596 	' z=-0.189 
+	bn_accel(  62    )    =  0.9996030170702659 	' z=-0.169 
+	bn_accel(  63    )    =  0.9993648273124255 	' z=-0.149 
+	bn_accel(  64    )    =  0.9988884477967447 	' z=-0.129 
+	bn_accel(  65    )    =  0.9976181024215958 	' z=-0.109 
+	bn_accel(  66    )    =  0.9946010321556172 	' z=-0.089 
+	bn_accel(  67    )    =  0.9876935291782453 	' z=-0.069 
+	bn_accel(  68    )    =  0.9718142119888844 	' z=-0.049 
+	bn_accel(  69    )    =  0.9377530766177055 	' z=-0.029 
+	bn_accel(  70    )    =  0.873838824930528 	' z=-0.009 
+	bn_accel(  71    )    =  0.7822469233822945 	' z=0.01 
+	bn_accel(  72    )    =  0.6680349344978166 	' z=0.03 
+	bn_accel(  73    )    =  0.5576022231044065 	' z=0.05 
+	bn_accel(  74    )    =  0.46345375148868595 	' z=0.07 
+	bn_accel(  75    )    =  0.3873997618102421 	' z=0.09 
+	bn_accel(  76    )    =  0.3267804684398571 	' z=0.11 
+	bn_accel(  77    )    =  0.2782056371576022 	' z=0.13 
+	bn_accel(  78    )    =  0.23882493052798728 	' z=0.15 
+	bn_accel(  79    )    =  0.20647082175466455 	' z=0.17 
+	bn_accel(  80    )    =  0.17956331877729256 	' z=0.19 
+	bn_accel(  81    )    =  0.15694323144104805 	' z=0.21 
+	bn_accel(  82    )    =  0.13775307661770542 	' z=0.23 
+	bn_accel(  83    )    =  0.12134180230250098 	' z=0.25 
+	bn_accel(  84    )    =  0.1072171496625645 	' z=0.27 
+	bn_accel(  85    )    =  0.09499007542675664 	' z=0.29 
+	bn_accel(  86    )    =  0.08436681222707422 	' z=0.31 
+	bn_accel(  87    )    =  0.07510202461294163 	' z=0.33 
+	bn_accel(  88    )    =  0.06698769352917824 	' z=0.35 
+	bn_accel(  89    )    =  0.059864231838030954 	' z=0.37 
+	bn_accel(  90    )    =  0.053593489479952364 	' z=0.39 
+	bn_accel(  91    )    =  0.04806113537117904 	' z=0.41 
+	bn_accel(  92    )    =  0.04316951171099642 	' z=0.43 
+	bn_accel(  93    )    =  0.03883604605001985 	' z=0.45 
+	bn_accel(  94    )    =  0.034990075426756646 	' z=0.47 
+	bn_accel(  95    )    =  0.03157046447002779 	' z=0.49 
+	bn_accel(  96    )    =  0.028525605398967844 	' z=0.51 
+	bn_accel(  97    )    =  0.025809448193727668 	' z=0.53 
+	bn_accel(  98    )    =  0.023382294561333863 	' z=0.55 
+	bn_accel(  99    )    =  0.021211591901548234 	' z=0.57 
+	bn_accel(  100    )    =  0.019267169511710997 	' z=0.59 
+	bn_accel(  101    )    =  0.017522032552600236 	' z=0.61 
+	bn_accel(  102    )    =  0.015953949980150855 	' z=0.63 
+	bn_accel(  103    )    =  0.01454386661373561 	' z=0.65 
+	bn_accel(  104    )    =  0.01327352123858674 	' z=0.67 
+	bn_accel(  105    )    =  0.012127828503374355 	' z=0.69 
+	bn_accel(  106    )    =  0.011093290988487494 	' z=0.71 
+	bn_accel(  107    )    =  0.01015799920603414 	' z=0.73 
+	bn_accel(  108    )    =  0.009311631599841207 	' z=0.75 
+	bn_accel(  109    )    =  0.008544660579595078 	' z=0.77 
+	bn_accel(  110    )    =  0.007848590710599443 	' z=0.79 
+	bn_accel(  111    )    =  0.007216752679634775 	' z=0.81 
+	bn_accel(  112    )    =  0.0066423977768955925 	' z=0.83 
+	bn_accel(  113    )    =  0.006119809448193727 	' z=0.85 
+	bn_accel(  114    )    =  0.005643826915442636 	' z=0.87 
+	bn_accel(  115    )    =  0.005209845176657403 	' z=0.89 
+	bn_accel(  116    )    =  0.004813894402540691 	' z=0.91 
+	bn_accel(  117    )    =  0.004452242953552997 	' z=0.93 
+	bn_accel(  118    )    =  0.004121635569670504 	' z=0.95 
+	bn_accel(  119    )    =  0.0038192139737991265 	' z=0.97 
+	bn_accel(  120    )    =  0.0035423580786026194 	' z=0.99 
+	bn_accel(  121    )    =  0.00328868598650258 	' z=1.01 
+	bn_accel(  122    )    =  0.0030560539896784433 	' z=1.03 
+	bn_accel(  123    )    =  0.0028426359666534336 	' z=1.05 
+	bn_accel(  124    )    =  0.002646605795950774 	' z=1.07 
+	bn_accel(  125    )    =  0.002466613735609369 	' z=1.09 
+	bn_accel(  126    )    =  0.002301071853910282 	' z=1.11 
+	bn_accel(  127    )    =  0.0021488685986502582 	' z=1.13 
+	bn_accel(  128    )    =  0.0020087336244541485 	' z=1.15 
+	bn_accel(  129    )    =  0.0018797935688765384 	' z=1.17 
+	bn_accel(  130    )    =  0.0017610162763001189 	' z=1.19 
+	bn_accel(  131    )    =  0.0016516077808654227 	' z=1.21 
+	bn_accel(  132    )    =  0.0015506947201270344 	' z=1.23 
+	bn_accel(  133    )    =  0.0014578007145692735 	' z=1.25 
+	bn_accel(  134    )    =  0.0013721317983326716 	' z=1.27 
+	bn_accel(  135    )    =  0.0012931321953156014 	' z=1.29 
+	bn_accel(  136    )    =  0.0012204049225883287 	' z=1.31 
+	bn_accel(  137    )    =  0.001153314807463279 	' z=1.33 
+	bn_accel(  138    )    =  0.0010915442635966654 	' z=1.35 
+	bn_accel(  139    )    =  0.0010346963080587535 	' z=1.37 
+	bn_accel(  140    )    =  0.0009824533545057562 	' z=1.39 
+	bn_accel(  141    )    =  0.0009343390234219928 	' z=1.41 
+	bn_accel(  142    )    =  0.0008902739182215164 	' z=1.43 
+	bn_accel(  143    )    =  0.0008499404525605399 	' z=1.45 
+	bn_accel(  144    )    =  0.0008130210400952759 	' z=1.47 
+	bn_accel(  145    )    =  0.0007793648273124254 	' z=1.49 
+End Sub
+
+Sub SetBn_adj()
+	bn_adj(  0    )    =  0.049460897181421194
+	bn_adj(  1    )    =  0.06106352180851241
+	bn_adj(  2    )    =  0.07495727333737724
+	bn_adj(  3    )    =  0.0914641086984564
+	bn_adj(  4    )    =  0.11091993153436168
+	bn_adj(  5    )    =  0.13365450148770602
+	bn_adj(  6    )    =  0.16000631631467016
+	bn_adj(  7    )    =  0.19024694238081347
+	bn_adj(  8    )    =  0.22464639615987894
+	bn_adj(  9    )    =  0.2633853113622894
+	bn_adj(  10    )    =  0.3065772986356792
+	bn_adj(  11    )    =  0.3541911297205749
+	bn_adj(  12    )    =  0.40611539204748637
+	bn_adj(  13    )    =  0.4620320627764421
+	bn_adj(  14    )    =  0.5214393285899699
+	bn_adj(  15    )    =  0.5835764590455962
+	bn_adj(  16    )    =  0.6473898801435173
+	bn_adj(  17    )    =  0.7114537141552071
+	bn_adj(  18    )    =  0.7739407211177982
+	bn_adj(  19    )    =  0.832657189181192
+	bn_adj(  20    )    =  0.8851690630123321
+	bn_adj(  21    )    =  0.9169960656827989
+	bn_adj(  22    )    =  0.9460699508387761
+	bn_adj(  23    )    =  0.9693193660443378
+	bn_adj(  24    )    =  0.9846647312784118
+	bn_adj(  25    )    =  0.9929994794196498
+	bn_adj(  26    )    =  0.996949147410013
+	bn_adj(  27    )    =  0.9986873741126925
+	bn_adj(  28    )    =  0.9994238770666319
+	bn_adj(  29    )    =  0.9997418611593815
+	bn_adj(  30    )    =  0.9998808838397804
+	bn_adj(  31    )    =  0.9999404472409544
+	bn_adj(  32    )    =  0.9999602993428759
+	bn_adj(  33    )    =  0.999980150262503
+	bn_adj(  34    )    =  0.999980150262503
+	bn_adj(  35    )    =  0.999980150262503
+	bn_adj(  36    )    =  0.999980150262503
+	bn_adj(  37    )    =  0.999980150262503
+	bn_adj(  38    )    =  1.0
+	bn_adj(  39    )    =  1.0
+	bn_adj(  40    )    =  1.0
+	bn_adj(  41    )    =  1.0
+	bn_adj(  42    )    =  1.0
+	bn_adj(  43    )    =  1.0
+	bn_adj(  44    )    =  1.0
+	bn_adj(  45    )    =  1.0
+	bn_adj(  46    )    =  1.0
+	bn_adj(  47    )    =  1.0
+	bn_adj(  48    )    =  1.0
+	bn_adj(  49    )    =  1.0
+	bn_adj(  50    )    =  1.0
+	bn_adj(  51    )    =  1.0
+	bn_adj(  52    )    =  1.0
+	bn_adj(  53    )    =  0.9999523612919458
+	bn_adj(  54    )    =  0.9999523612919458
+	bn_adj(  55    )    =  0.9999523612919458
+	bn_adj(  56    )    =  0.9999523612919458
+	bn_adj(  57    )    =  0.9999523612919458
+	bn_adj(  58    )    =  0.9999523612919458
+	bn_adj(  59    )    =  0.999904721070807
+	bn_adj(  60    )    =  0.999904721070807
+	bn_adj(  61    )    =  0.9998570793364157
+	bn_adj(  62    )    =  0.9997617913272016
+	bn_adj(  63    )    =  0.9996188479597783
+	bn_adj(  64    )    =  0.9993329203352903
+	bn_adj(  65    )    =  0.9985701798827868
+	bn_adj(  66    )    =  0.996757112589334
+	bn_adj(  67    )    =  0.9925978384497643
+	bn_adj(  68    )    =  0.9829919189895041
+	bn_adj(  69    )    =  0.9621728511516721
+	bn_adj(  70    )    =  0.9222715290755822
+	bn_adj(  71    )    =  0.8629911026991273
+	bn_adj(  72    )    =  0.785017800393497
+	bn_adj(  73    )    =  0.7043600213512268
+	bn_adj(  74    )    =  0.6303820543072486
+	bn_adj(  75    )    =  0.5661031997357187
+	bn_adj(  76    )    =  0.5111562255648818
+	bn_adj(  77    )    =  0.4641085352008455
+	bn_adj(  78    )    =  0.4234945210718836
+	bn_adj(  79    )    =  0.38807459396722804
+	bn_adj(  80    )    =  0.3568868731173669
+	bn_adj(  81    )    =  0.3291891816320515
+	bn_adj(  82    )    =  0.3044113102381273
+	bn_adj(  83    )    =  0.28210206470378457
+	bn_adj(  84    )    =  0.26191390424760697
+	bn_adj(  85    )    =  0.2435605463113465
+	bn_adj(  86    )    =  0.22683130107382915
+	bn_adj(  87    )    =  0.21153926301144843
+	bn_adj(  88    )    =  0.1975136045770959
+	bn_adj(  89    )    =  0.1846292257547549
+	bn_adj(  90    )    =  0.17276955751413375
+	bn_adj(  91    )    =  0.16183647697132686
+	bn_adj(  92    )    =  0.15174216699626672
+	bn_adj(  93    )    =  0.14241016985527577
+	bn_adj(  94    )    =  0.13377252580362278
+	bn_adj(  95    )    =  0.12576754479766905
+	bn_adj(  96    )    =  0.11834254974906773
+	bn_adj(  97    )    =  0.1114467047096222
+	bn_adj(  98    )    =  0.1050345735185849
+	bn_adj(  99    )    =  0.09907040942145444
+	bn_adj(  100    )    =  0.09351703976150631
+	bn_adj(  101    )    =  0.08833863609903642
+	bn_adj(  102    )    =  0.08350662577692831
+	bn_adj(  103    )    =  0.07899651450430419
+	bn_adj(  104    )    =  0.07478107249674878
+	bn_adj(  105    )    =  0.07083857695391471
+	bn_adj(  106    )    =  0.0671484887863817
+	bn_adj(  107    )    =  0.06369200268328835
+	bn_adj(  108    )    =  0.06045266780999522
+	bn_adj(  109    )    =  0.0574138789784025
+	bn_adj(  110    )    =  0.054560081353208716
+	bn_adj(  111    )    =  0.05188061233100383
+	bn_adj(  112    )    =  0.04936224778537515
+	bn_adj(  113    )    =  0.04699403541847515
+	bn_adj(  114    )    =  0.044765579594916
+	bn_adj(  115    )    =  0.04266727337357648
+	bn_adj(  116    )    =  0.040690959959880466
+	bn_adj(  117    )    =  0.038828204933323306
+	bn_adj(  118    )    =  0.03707163611828568
+	bn_adj(  119    )    =  0.035414767453195536
+	bn_adj(  120    )    =  0.03385130967520681
+	bn_adj(  121    )    =  0.03237527340322769
+	bn_adj(  122    )    =  0.030981084299173
+	bn_adj(  123    )    =  0.029664207340032413
+	bn_adj(  124    )    =  0.028419311713254368
+	bn_adj(  125    )    =  0.027243361132388916
+	bn_adj(  126    )    =  0.026131125044884386
+	bn_adj(  127    )    =  0.025079906654790183
+	bn_adj(  128    )    =  0.024085374839409875
+	bn_adj(  129    )    =  0.02314547487833475
+	bn_adj(  130    )    =  0.02225655907067233
+	bn_adj(  131    )    =  0.021416285713846028
+	bn_adj(  132    )    =  0.020621287867144768
+	bn_adj(  133    )    =  0.019870962111016046
+	bn_adj(  134    )    =  0.01916185270098741
+	bn_adj(  135    )    =  0.018492079621896744
+	bn_adj(  136    )    =  0.017860860169161757
+	bn_adj(  137    )    =  0.017265084998886744
+	bn_adj(  138    )    =  0.016704166529728375
+	bn_adj(  139    )    =  0.016176618359021438
+	bn_adj(  140    )    =  0.01568148416738945
+	bn_adj(  141    )    =  0.015216076839267885
+	bn_adj(  142    )    =  0.014781353050875978
+	bn_adj(  143    )    =  0.014375835675407575
+	bn_adj(  144    )    =  0.013997841476481325
+	bn_adj(  145    )    =  0.013647229071424781
+End Sub
+Sub SetBn_bounce_adj()
+	bn_bounce_adj(  0    )    =  0.049460897181421194
+	bn_bounce_adj(  1    )    =  0.06106352180851241
+	bn_bounce_adj(  2    )    =  0.07495727333737724
+	bn_bounce_adj(  3    )    =  0.0914641086984564
+	bn_bounce_adj(  4    )    =  0.11091993153436168
+	bn_bounce_adj(  5    )    =  0.13365450148770602
+	bn_bounce_adj(  6    )    =  0.16000631631467016
+	bn_bounce_adj(  7    )    =  0.19024694238081347
+	bn_bounce_adj(  8    )    =  0.22464639615987894
+	bn_bounce_adj(  9    )    =  0.2633853113622894
+	bn_bounce_adj(  10    )    =  0.3065772986356792
+	bn_bounce_adj(  11    )    =  0.3541911297205749
+	bn_bounce_adj(  12    )    =  0.40611539204748637
+	bn_bounce_adj(  13    )    =  0.4620320627764421
+	bn_bounce_adj(  14    )    =  0.5214393285899699
+	bn_bounce_adj(  15    )    =  0.5835764590455962
+	bn_bounce_adj(  16    )    =  0.6473898801435173
+	bn_bounce_adj(  17    )    =  0.7114537141552071
+	bn_bounce_adj(  18    )    =  0.7739407211177982
+	bn_bounce_adj(  19    )    =  0.832657189181192
+	bn_bounce_adj(  20    )    =  0.8851690630123321
+	bn_bounce_adj(  21    )    =  0.9169960656827989
+	bn_bounce_adj(  22    )    =  0.9460699508387761
+	bn_bounce_adj(  23    )    =  0.9693193660443378
+	bn_bounce_adj(  24    )    =  0.9846647312784118
+	bn_bounce_adj(  25    )    =  0.9929994794196498
+	bn_bounce_adj(  26    )    =  0.996949147410013
+	bn_bounce_adj(  27    )    =  0.9986873741126925
+	bn_bounce_adj(  28    )    =  0.9994238770666319
+	bn_bounce_adj(  29    )    =  0.9997418611593815
+	bn_bounce_adj(  30    )    =  0.9998808838397804
+	bn_bounce_adj(  31    )    =  0.9999404472409544
+	bn_bounce_adj(  32    )    =  0.9999602993428759
+	bn_bounce_adj(  33    )    =  0.999980150262503
+	bn_bounce_adj(  34    )    =  0.999980150262503
+	bn_bounce_adj(  35    )    =  0.999980150262503
+	bn_bounce_adj(  36    )    =  0.999980150262503
+	bn_bounce_adj(  37    )    =  0.999980150262503
+	bn_bounce_adj(  38    )    =  1.0
+	bn_bounce_adj(  39    )    =  1.0
+	bn_bounce_adj(  40    )    =  1.0
+	bn_bounce_adj(  41    )    =  1.0
+	bn_bounce_adj(  42    )    =  1.0
+	bn_bounce_adj(  43    )    =  1.0
+	bn_bounce_adj(  44    )    =  1.0
+	bn_bounce_adj(  45    )    =  1.0
+	bn_bounce_adj(  46    )    =  1.0
+	bn_bounce_adj(  47    )    =  1.0
+	bn_bounce_adj(  48    )    =  1.0
+	bn_bounce_adj(  49    )    =  1.0
+	bn_bounce_adj(  50    )    =  1.0
+	bn_bounce_adj(  51    )    =  1.0
+	bn_bounce_adj(  52    )    =  1.0
+	bn_bounce_adj(  53    )    =  0.9999603009190181
+	bn_bounce_adj(  54    )    =  0.9999603009190181
+	bn_bounce_adj(  55    )    =  0.9999603009190181
+	bn_bounce_adj(  56    )    =  0.9999603009190181
+	bn_bounce_adj(  57    )    =  0.9999603009190181
+	bn_bounce_adj(  58    )    =  0.9999603009190181
+	bn_bounce_adj(  59    )    =  0.999920600261894
+	bn_bounce_adj(  60    )    =  0.999920600261894
+	bn_bounce_adj(  61    )    =  0.9998808980284399
+	bn_bounce_adj(  62    )    =  0.999801488831791
+	bn_bounce_adj(  63    )    =  0.9996823632096474
+	bn_bounce_adj(  64    )    =  0.999444069368939
+	bn_bounce_adj(  65    )    =  0.9988083411854327
+	bn_bounce_adj(  66    )    =  0.9972968626019122
+	bn_bounce_adj(  67    )    =  0.993827716044509
+	bn_bounce_adj(  68    )    =  0.9858063765207062
+	bn_bounce_adj(  69    )    =  0.9683765159367019
+	bn_bounce_adj(  70    )    =  0.934793466456911
+	bn_bounce_adj(  71    )    =  0.8844472417178395
+	bn_bounce_adj(  72    )    =  0.8173340409513216
+	bn_bounce_adj(  73    )    =  0.7467276766696187
+	bn_bounce_adj(  74    )    =  0.6807743763455598
+	bn_bounce_adj(  75    )    =  0.6224144614404795
+	bn_bounce_adj(  76    )    =  0.5716471537931918
+	bn_bounce_adj(  77    )    =  0.5274520235600602
+	bn_bounce_adj(  78    )    =  0.488697176713747
+	bn_bounce_adj(  79    )    =  0.4543906048265793
+	bn_bounce_adj(  80    )    =  0.423749122450174
+	bn_bounce_adj(  81    )    =  0.3961606131874395
+	bn_bounce_adj(  82    )    =  0.3711510159189995
+	bn_bounce_adj(  83    )    =  0.34834150241178696
+	bn_bounce_adj(  84    )    =  0.3274402993868722
+	bn_bounce_adj(  85    )    =  0.3082045999441875
+	bn_bounce_adj(  86    )    =  0.2904596567977629
+	bn_bounce_adj(  87    )    =  0.2687776854942922
+	bn_bounce_adj(  88    )    =  0.2485349317523548
+	bn_bounce_adj(  89    )    =  0.22965186352528075
+	bn_bounce_adj(  90    )    =  0.21204565534372805
+	bn_bounce_adj(  91    )    =  0.19564298889694143
+	bn_bounce_adj(  92    )    =  0.18037300445276835
+	bn_bounce_adj(  93    )    =  0.16616989352150474
+	bn_bounce_adj(  94    )    =  0.15297100926286822
+	bn_bounce_adj(  95    )    =  0.1407155042305686
+	bn_bounce_adj(  96    )    =  0.12934809900176691
+	bn_bounce_adj(  97    )    =  0.11881221817725782
+	bn_bounce_adj(  98    )    =  0.10905445334117865
+	bn_bounce_adj(  99    )    =  0.10002936793991571
+	bn_bounce_adj(  100    )    =  0.0916884942426585
+	bn_bounce_adj(  101    )    =  0.0839837950775788
+	bn_bounce_adj(  102    )    =  0.0768737912691978
+	bn_bounce_adj(  103    )    =  0.07032044761042938
+	bn_bounce_adj(  104    )    =  0.06428301008852469
+	bn_bounce_adj(  105    )    =  0.05872602528226064
+	bn_bounce_adj(  106    )    =  0.05361536455958321
+	bn_bounce_adj(  107    )    =  0.04891886529812329
+	bn_bounce_adj(  108    )    =  0.044606910760117975
+	bn_bounce_adj(  109    )    =  0.04065039440896362
+	bn_bounce_adj(  110    )    =  0.03702186934311808
+	bn_bounce_adj(  111    )    =  0.03369845599656864
+	bn_bounce_adj(  112    )    =  0.030656021451601612
+	bn_bounce_adj(  113    )    =  0.02787297816587853
+	bn_bounce_adj(  114    )    =  0.0253289576189853
+	bn_bounce_adj(  115    )    =  0.0230049771620057
+	bn_bounce_adj(  116    )    =  0.020883823088253872
+	bn_bounce_adj(  117    )    =  0.01894890033139766
+	bn_bounce_adj(  118    )    =  0.017185077542231166
+	bn_bounce_adj(  119    )    =  0.015578497108533748
+	bn_bounce_adj(  120    )    =  0.01411613512811802
+	bn_bounce_adj(  121    )    =  0.012785849434508568
+	bn_bounce_adj(  122    )    =  0.011576412333363482
+	bn_bounce_adj(  123    )    =  0.010477755726505495
+	bn_bounce_adj(  124    )    =  0.009480059617602178
+	bn_bounce_adj(  125    )    =  0.008575119044644442
+	bn_bounce_adj(  126    )    =  0.00775432758863033
+	bn_bounce_adj(  127    )    =  0.007010668978984144
+	bn_bounce_adj(  128    )    =  0.006336970927826807
+	bn_bounce_adj(  129    )    =  0.005727374824283616
+	bn_bounce_adj(  130    )    =  0.005175872827687508
+	bn_bounce_adj(  131    )    =  0.0046773195948735455
+	bn_bounce_adj(  132    )    =  0.0042266348577749795
+	bn_bounce_adj(  133    )    =  0.0038199060386936733
+	bn_bounce_adj(  134    )    =  0.00345271246684407
+	bn_bounce_adj(  135    )    =  0.0031214058289044
+	bn_bounce_adj(  136    )    =  0.0028228705108585125
+	bn_bounce_adj(  137    )    =  0.002553694807975959
+	bn_bounce_adj(  138    )    =  0.0023113025740047434
+	bn_bounce_adj(  139    )    =  0.0020931221679436197
+	bn_bounce_adj(  140    )    =  0.0018968906924335808
+	bn_bounce_adj(  141    )    =  0.001720225357378975
+	bn_bounce_adj(  142    )    =  0.0015615710834055016
+	bn_bounce_adj(  143    )    =  0.0014190831180862541
+	bn_bounce_adj(  144    )    =  0.0012910562629267954
+	bn_bounce_adj(  145    )    =  0.001176158106103377
+End Sub
