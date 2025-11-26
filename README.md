@@ -4,4 +4,4 @@
 
 CST macro and script files for the PTOLEMY filter and transmission simulation.
 
-Clone this repo, adjust file/directory paths to your own, and unpack `cst_template.zip` on della.
+Clone this repo and open CST/LNGS_target.cst
